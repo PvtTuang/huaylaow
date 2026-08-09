@@ -32,7 +32,7 @@ def dashboard(request):
             # พิมพ์ Error ลง Console/Render Logs เพื่อติดตามสาเหตุ
             print(f"❌ [Dashboard Prediction Error]: {e}")
             traceback.print_exc()
-            logger.error(f"Prediction failed for {tomorrow}: {e}", exc_info=True)
+            logger.error(f"Prediction failed for : {tomorrow}: {e}", exc_info=True)
             prediction = None
     
     # ประวัติย้อนหลัง 10 งวด
