@@ -1,12 +1,16 @@
+from datetime import timedelta
+import logging
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib import messages
-from django.utils import timezone
-from datetime import date, timedelta
+from django.utils import timezone  # ใช้ timezone ของ Django แทน date.today()
 
 from lottery.models import LotteryResult, Prediction, FetchLog
 from lottery.services.predictor import predict_next, save_prediction, get_accuracy_stats
 from lottery.services.fetcher import fetch_and_save
+
+# ตั้งค่า Logger สำหรับแสดงผลใน Render Logs
+logger = logging.getLogger(__name__)
 
 
 def dashboard(request):
@@ -14,13 +18,19 @@ def dashboard(request):
     # ผลล่าสุด
     latest = LotteryResult.objects.first()
     
-    # prediction งวดถัดไป
-    tomorrow = date.today() + timedelta(days=1)
-    prediction = Prediction.objects.filter(target_date__gte=date.today()).first()
+    # ดึงวันที่ปัจจุบันตาม Timezone ที่ตั้งไว้ใน settings.py (Asia/Bangkok)
+    today = timezone.localdate()
+    tomorrow = today + timedelta(days=1)
+    
+    # ค้นหา Prediction งวดถัดไป
+    prediction = Prediction.objects.filter(target_date__gte=today).first()
     if not prediction:
         try:
             prediction = save_prediction(tomorrow)
-        except Exception:
+        except Exception as e:
+            # พิมพ์ Error ลง Console/Render Logs เพื่อติดตามสาเหตุ
+            print(f"❌ [Dashboard Prediction Error]: {e}")
+            logger.error(f"Prediction failed for {tomorrow}: {e}", exc_info=True)
             prediction = None
     
     # ประวัติย้อนหลัง 10 งวด
@@ -38,7 +48,7 @@ def dashboard(request):
         'recent_results': recent_results,
         'stats': stats,
         'hot_numbers': hot_numbers,
-        'today': date.today(),
+        'today': today,
         'tomorrow': tomorrow,
     }
     return render(request, 'lottery/dashboard.html', context)
@@ -61,16 +71,21 @@ def history(request):
 def fetch_now(request):
     """AJAX/POST: ดึงข้อมูลวันนี้ทันที"""
     if request.method == 'POST':
-        target = date.today()
-        obj, msg = fetch_and_save(target)
+        today = timezone.localdate()
+        obj, msg = fetch_and_save(today)
         if obj:
             # สร้าง prediction ใหม่หลังได้ข้อมูล
             try:
-                save_prediction(target + timedelta(days=1))
-            except Exception:
-                pass
-            return JsonResponse({'status': 'success', 'message': msg,
-                                 'first_prize': obj.first_prize})
+                save_prediction(today + timedelta(days=1))
+            except Exception as e:
+                print(f"❌ [Fetch Prediction Error]: {e}")
+                logger.error(f"Fetch prediction failed: {e}", exc_info=True)
+                
+            return JsonResponse({
+                'status': 'success', 
+                'message': msg,
+                'first_prize': obj.first_prize
+            })
         return JsonResponse({'status': 'error', 'message': msg})
     return JsonResponse({'status': 'error', 'message': 'POST only'})
 
@@ -79,8 +94,13 @@ def refresh_prediction(request):
     """AJAX/POST: สร้าง prediction ใหม่"""
     if request.method == 'POST':
         try:
-            tomorrow = date.today() + timedelta(days=1)
+            today = timezone.localdate()
+            tomorrow = today + timedelta(days=1)
             pred = save_prediction(tomorrow)
+            
+            if not pred:
+                return JsonResponse({'status': 'error', 'message': 'Prediction returned None'})
+                
             return JsonResponse({
                 'status': 'success',
                 'predicted_first': pred.predicted_first,
@@ -89,6 +109,8 @@ def refresh_prediction(request):
                 'confidence': pred.confidence,
             })
         except Exception as e:
+            print(f"❌ [Refresh Prediction Error]: {e}")
+            logger.error(f"Refresh prediction failed: {e}", exc_info=True)
             return JsonResponse({'status': 'error', 'message': str(e)})
     return JsonResponse({'status': 'error', 'message': 'POST only'})
 

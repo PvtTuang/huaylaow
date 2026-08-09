@@ -1,0 +1,446 @@
+[
+{
+    "model": "auth.user",
+    "fields": {
+        "password": "pbkdf2_sha256$1500000$dwQFegvfsNrPVOK5R3Be16$/i4O8I5D16fILcoTInwA2N5O12tzSq4z4ZDIz/rsFTs=",
+        "last_login": null,
+        "is_superuser": true,
+        "username": "admin",
+        "first_name": "",
+        "last_name": "",
+        "email": "admin@example.com",
+        "is_staff": true,
+        "is_active": true,
+        "date_joined": "2026-08-09T07:29:55.512Z",
+        "groups": [],
+        "user_permissions": []
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 18,
+    "fields": {
+        "draw_date": "2026-08-07",
+        "first_prize": "197677",
+        "two_digit": "77",
+        "three_digit": "677",
+        "raw_data": "Scraped from MThai: 197677",
+        "created_at": "2026-08-09T08:00:14.111Z",
+        "updated_at": "2026-08-09T08:00:14.111Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 19,
+    "fields": {
+        "draw_date": "2026-08-06",
+        "first_prize": "507634",
+        "two_digit": "34",
+        "three_digit": "634",
+        "raw_data": "Scraped from MThai: 507634",
+        "created_at": "2026-08-09T08:00:14.118Z",
+        "updated_at": "2026-08-09T08:00:14.118Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 20,
+    "fields": {
+        "draw_date": "2026-08-05",
+        "first_prize": "382222",
+        "two_digit": "22",
+        "three_digit": "222",
+        "raw_data": "Scraped from MThai: 382222",
+        "created_at": "2026-08-09T08:00:14.123Z",
+        "updated_at": "2026-08-09T08:00:14.123Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 21,
+    "fields": {
+        "draw_date": "2026-08-04",
+        "first_prize": "437886",
+        "two_digit": "86",
+        "three_digit": "886",
+        "raw_data": "Scraped from MThai: 437886",
+        "created_at": "2026-08-09T08:00:14.128Z",
+        "updated_at": "2026-08-09T08:00:14.128Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 22,
+    "fields": {
+        "draw_date": "2026-08-03",
+        "first_prize": "111680",
+        "two_digit": "80",
+        "three_digit": "680",
+        "raw_data": "Scraped from MThai: 111680",
+        "created_at": "2026-08-09T08:00:14.133Z",
+        "updated_at": "2026-08-09T08:00:14.133Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 23,
+    "fields": {
+        "draw_date": "2026-07-31",
+        "first_prize": "323290",
+        "two_digit": "90",
+        "three_digit": "290",
+        "raw_data": "Scraped from MThai: 323290",
+        "created_at": "2026-08-09T08:00:14.137Z",
+        "updated_at": "2026-08-09T08:00:14.137Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 24,
+    "fields": {
+        "draw_date": "2026-07-30",
+        "first_prize": "740702",
+        "two_digit": "02",
+        "three_digit": "702",
+        "raw_data": "Scraped from MThai: 740702",
+        "created_at": "2026-08-09T08:00:14.142Z",
+        "updated_at": "2026-08-09T08:00:14.142Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 25,
+    "fields": {
+        "draw_date": "2026-07-29",
+        "first_prize": "081480",
+        "two_digit": "80",
+        "three_digit": "480",
+        "raw_data": "Scraped from MThai: 081480",
+        "created_at": "2026-08-09T08:00:14.147Z",
+        "updated_at": "2026-08-09T08:00:14.147Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 26,
+    "fields": {
+        "draw_date": "2026-07-28",
+        "first_prize": "950480",
+        "two_digit": "80",
+        "three_digit": "480",
+        "raw_data": "Scraped from MThai: 950480",
+        "created_at": "2026-08-09T08:00:14.152Z",
+        "updated_at": "2026-08-09T08:00:14.152Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 27,
+    "fields": {
+        "draw_date": "2026-07-27",
+        "first_prize": "804970",
+        "two_digit": "70",
+        "three_digit": "970",
+        "raw_data": "Scraped from MThai: 804970",
+        "created_at": "2026-08-09T08:00:14.156Z",
+        "updated_at": "2026-08-09T08:00:14.156Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 28,
+    "fields": {
+        "draw_date": "2026-07-24",
+        "first_prize": "382561",
+        "two_digit": "61",
+        "three_digit": "561",
+        "raw_data": "Scraped from MThai: 382561",
+        "created_at": "2026-08-09T08:00:14.161Z",
+        "updated_at": "2026-08-09T08:00:14.161Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 29,
+    "fields": {
+        "draw_date": "2026-07-23",
+        "first_prize": "786276",
+        "two_digit": "76",
+        "three_digit": "276",
+        "raw_data": "Scraped from MThai: 786276",
+        "created_at": "2026-08-09T08:00:14.166Z",
+        "updated_at": "2026-08-09T08:00:14.166Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 30,
+    "fields": {
+        "draw_date": "2026-07-22",
+        "first_prize": "930768",
+        "two_digit": "68",
+        "three_digit": "768",
+        "raw_data": "Scraped from MThai: 930768",
+        "created_at": "2026-08-09T08:00:14.170Z",
+        "updated_at": "2026-08-09T08:00:14.170Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 31,
+    "fields": {
+        "draw_date": "2026-07-21",
+        "first_prize": "096592",
+        "two_digit": "92",
+        "three_digit": "592",
+        "raw_data": "Scraped from MThai: 096592",
+        "created_at": "2026-08-09T08:00:14.175Z",
+        "updated_at": "2026-08-09T08:00:14.175Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 32,
+    "fields": {
+        "draw_date": "2026-07-20",
+        "first_prize": "059073",
+        "two_digit": "73",
+        "three_digit": "073",
+        "raw_data": "Scraped from MThai: 059073",
+        "created_at": "2026-08-09T08:00:14.180Z",
+        "updated_at": "2026-08-09T08:00:14.180Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 33,
+    "fields": {
+        "draw_date": "2026-07-17",
+        "first_prize": "364604",
+        "two_digit": "04",
+        "three_digit": "604",
+        "raw_data": "Scraped from MThai: 364604",
+        "created_at": "2026-08-09T08:00:14.184Z",
+        "updated_at": "2026-08-09T08:00:14.184Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 34,
+    "fields": {
+        "draw_date": "2026-07-16",
+        "first_prize": "256395",
+        "two_digit": "95",
+        "three_digit": "395",
+        "raw_data": "Scraped from MThai: 256395",
+        "created_at": "2026-08-09T08:00:14.189Z",
+        "updated_at": "2026-08-09T08:00:14.189Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 35,
+    "fields": {
+        "draw_date": "2026-07-15",
+        "first_prize": "339375",
+        "two_digit": "75",
+        "three_digit": "375",
+        "raw_data": "Scraped from MThai: 339375",
+        "created_at": "2026-08-09T08:00:14.194Z",
+        "updated_at": "2026-08-09T08:00:14.194Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 36,
+    "fields": {
+        "draw_date": "2026-07-14",
+        "first_prize": "331546",
+        "two_digit": "46",
+        "three_digit": "546",
+        "raw_data": "Scraped from MThai: 331546",
+        "created_at": "2026-08-09T08:00:14.199Z",
+        "updated_at": "2026-08-09T08:00:14.199Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 37,
+    "fields": {
+        "draw_date": "2026-07-13",
+        "first_prize": "102866",
+        "two_digit": "66",
+        "three_digit": "866",
+        "raw_data": "Scraped from MThai: 102866",
+        "created_at": "2026-08-09T08:00:14.203Z",
+        "updated_at": "2026-08-09T08:00:14.203Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 38,
+    "fields": {
+        "draw_date": "2026-07-10",
+        "first_prize": "000277",
+        "two_digit": "77",
+        "three_digit": "277",
+        "raw_data": "Scraped from MThai: 000277",
+        "created_at": "2026-08-09T08:00:14.209Z",
+        "updated_at": "2026-08-09T08:00:14.209Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 39,
+    "fields": {
+        "draw_date": "2026-07-09",
+        "first_prize": "862891",
+        "two_digit": "91",
+        "three_digit": "891",
+        "raw_data": "Scraped from MThai: 862891",
+        "created_at": "2026-08-09T08:00:14.214Z",
+        "updated_at": "2026-08-09T08:00:14.214Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 40,
+    "fields": {
+        "draw_date": "2026-07-08",
+        "first_prize": "766920",
+        "two_digit": "20",
+        "three_digit": "920",
+        "raw_data": "Scraped from MThai: 766920",
+        "created_at": "2026-08-09T08:00:14.219Z",
+        "updated_at": "2026-08-09T08:00:14.219Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 41,
+    "fields": {
+        "draw_date": "2026-07-07",
+        "first_prize": "749659",
+        "two_digit": "59",
+        "three_digit": "659",
+        "raw_data": "Scraped from MThai: 749659",
+        "created_at": "2026-08-09T08:00:14.224Z",
+        "updated_at": "2026-08-09T08:00:14.224Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 42,
+    "fields": {
+        "draw_date": "2026-07-06",
+        "first_prize": "862227",
+        "two_digit": "27",
+        "three_digit": "227",
+        "raw_data": "Scraped from MThai: 862227",
+        "created_at": "2026-08-09T08:00:14.228Z",
+        "updated_at": "2026-08-09T08:00:14.228Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 43,
+    "fields": {
+        "draw_date": "2026-07-03",
+        "first_prize": "590392",
+        "two_digit": "92",
+        "three_digit": "392",
+        "raw_data": "Scraped from MThai: 590392",
+        "created_at": "2026-08-09T08:00:14.234Z",
+        "updated_at": "2026-08-09T08:00:14.234Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 44,
+    "fields": {
+        "draw_date": "2026-07-02",
+        "first_prize": "539460",
+        "two_digit": "60",
+        "three_digit": "460",
+        "raw_data": "Scraped from MThai: 539460",
+        "created_at": "2026-08-09T08:00:14.239Z",
+        "updated_at": "2026-08-09T08:00:14.239Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 45,
+    "fields": {
+        "draw_date": "2026-07-01",
+        "first_prize": "848147",
+        "two_digit": "47",
+        "three_digit": "147",
+        "raw_data": "Scraped from MThai: 848147",
+        "created_at": "2026-08-09T08:00:14.244Z",
+        "updated_at": "2026-08-09T08:00:14.244Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 46,
+    "fields": {
+        "draw_date": "2026-06-30",
+        "first_prize": "608383",
+        "two_digit": "83",
+        "three_digit": "383",
+        "raw_data": "Scraped from MThai: 608383",
+        "created_at": "2026-08-09T08:00:14.248Z",
+        "updated_at": "2026-08-09T08:00:14.248Z"
+    }
+},
+{
+    "model": "lottery.lotteryresult",
+    "pk": 47,
+    "fields": {
+        "draw_date": "2026-06-29",
+        "first_prize": "956782",
+        "two_digit": "82",
+        "three_digit": "782",
+        "raw_data": "Scraped from MThai: 956782",
+        "created_at": "2026-08-09T08:00:14.253Z",
+        "updated_at": "2026-08-09T08:00:14.253Z"
+    }
+},
+{
+    "model": "lottery.prediction",
+    "pk": 5,
+    "fields": {
+        "target_date": "2026-08-10",
+        "predicted_first": "302670",
+        "predicted_two": "70",
+        "predicted_three": "670",
+        "confidence": 86.8,
+        "model_used": "ensemble (freq + rf + hot/cold)",
+        "actual_result": null,
+        "is_correct_two": null,
+        "is_correct_three": null,
+        "is_correct_first": null,
+        "created_at": "2026-08-09T08:07:00.435Z"
+    }
+},
+{
+    "model": "lottery.fetchlog",
+    "pk": 36,
+    "fields": {
+        "fetched_at": "2026-08-09T08:00:26.366Z",
+        "status": "fail",
+        "message": "ไม่พบผลหวยของวันที่ 2026-08-09 แต่บันทึกข้อมูลงวดอื่นได้ 0 งวด",
+        "records_saved": 0
+    }
+},
+{
+    "model": "lottery.fetchlog",
+    "pk": 37,
+    "fields": {
+        "fetched_at": "2026-08-09T08:06:58.797Z",
+        "status": "fail",
+        "message": "ไม่พบผลหวยของวันที่ 2026-08-09 แต่บันทึกข้อมูลงวดอื่นได้ 0 งวด",
+        "records_saved": 0
+    }
+}
+]

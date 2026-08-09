@@ -58,7 +58,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default="postgresql://huaylaow_db_user:XMIwAfGO5QFadMg5OJxUlmy2KnpwroAw@dpg-d9s3l92jobas73ehl0m0-a.singapore-postgres.render.com/huaylaow_db",
         conn_max_age=600,
     )
 }
@@ -78,6 +78,7 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SERPAPI_KEY = os.getenv('SERPAPI_KEY', '')
