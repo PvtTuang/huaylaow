@@ -1,0 +1,240 @@
+{% extends "lottery/base.html" %}
+{% block title %}ประวัติผลหวย - หวยลาวพัฒนา AI{% endblock %}
+{% block nav_history %}active{% endblock %}
+
+{% block extra_head %}
+<style>
+    .page-header {
+        margin-bottom: 2rem;
+    }
+    .page-header h1 {
+        font-size: 2rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #fff, var(--primary-light));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    .page-header p {
+        color: var(--text-muted);
+    }
+
+    .stats-banner {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .stat-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1.25rem;
+        text-align: center;
+    }
+    .stat-card .num {
+        font-size: 2rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--primary), var(--primary-light));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .stat-card .label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
+    }
+
+    .section-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .table-wrapper {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+    }
+    .table-scroll {
+        overflow-x: auto;
+    }
+
+    .correct-yes {
+        color: var(--success);
+        font-weight: 700;
+    }
+    .correct-no {
+        color: var(--danger);
+        font-weight: 600;
+    }
+    .correct-pending {
+        color: var(--text-muted);
+    }
+
+    .number-big {
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: var(--primary);
+    }
+    .number-pred {
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #a78bfa;
+    }
+
+    @media (max-width: 768px) {
+        .stats-banner { grid-template-columns: repeat(2, 1fr); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📊 ประวัติผลหวย & การทำนาย</h1>
+    <p>ข้อมูลผลรางวัลย้อนหลังและการติดตามความแม่นยำของระบบ AI</p>
+</div>
+
+<!-- STATS BANNER -->
+<div class="stats-banner">
+    <div class="stat-card">
+        <div class="num">{{ results.count }}</div>
+        <div class="label">งวดในระบบ</div>
+    </div>
+    <div class="stat-card">
+        <div class="num">{{ stats.total }}</div>
+        <div class="label">ทำนายแล้ว</div>
+    </div>
+    <div class="stat-card">
+        <div class="num" style="color: inherit;">
+            <span style="background:linear-gradient(135deg,var(--success),#6ee7b7); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
+                {{ stats.acc_two }}%
+            </span>
+        </div>
+        <div class="label">ถูก 2 ตัวท้าย</div>
+    </div>
+    <div class="stat-card">
+        <div class="num" style="color: inherit;">
+            <span style="background:linear-gradient(135deg,var(--accent2),#a7f3d0); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
+                {{ stats.acc_three }}%
+            </span>
+        </div>
+        <div class="label">ถูก 3 ตัวท้าย</div>
+    </div>
+</div>
+
+<!-- PREDICTIONS TABLE -->
+<div class="card" style="margin-bottom:1.5rem;">
+    <div class="section-title">🔮 ประวัติการทำนาย (30 งวดล่าสุด)</div>
+    {% if predictions %}
+    <div class="table-scroll">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>งวดที่ทำนาย</th>
+                    <th>เลขทำนาย</th>
+                    <th>2 ตัวท้าย</th>
+                    <th>3 ตัวท้าย</th>
+                    <th>Confidence</th>
+                    <th>ผลจริง</th>
+                    <th>ถูก 2 ตัว</th>
+                    <th>ถูก 3 ตัว</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in predictions %}
+                <tr>
+                    <td><span class="badge badge-purple">{{ p.target_date|date:"d/m/Y" }}</span></td>
+                    <td class="number-pred">{{ p.predicted_first }}</td>
+                    <td style="color:#a78bfa; font-weight:700;">{{ p.predicted_two }}</td>
+                    <td style="color:#a78bfa; font-weight:700;">{{ p.predicted_three }}</td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <div class="progress" style="width:60px; margin:0;">
+                                <div class="progress-bar" style="width:{{ p.confidence }}%;"></div>
+                            </div>
+                            <span style="font-size:0.85rem; color:var(--warning);">{{ p.confidence }}%</span>
+                        </div>
+                    </td>
+                    <td>
+                        {% if p.actual_result %}
+                            <span class="number-big">{{ p.actual_result.first_prize }}</span>
+                        {% else %}
+                            <span class="correct-pending">รอผล</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.is_correct_two is None %}
+                            <span class="correct-pending">-</span>
+                        {% elif p.is_correct_two %}
+                            <span class="correct-yes">✓ ถูก</span>
+                        {% else %}
+                            <span class="correct-no">✗ ผิด</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.is_correct_three is None %}
+                            <span class="correct-pending">-</span>
+                        {% elif p.is_correct_three %}
+                            <span class="correct-yes">✓ ถูก</span>
+                        {% else %}
+                            <span class="correct-no">✗ ผิด</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    </div>
+    {% else %}
+        <div style="text-align:center; padding:2rem; color:var(--text-muted);">
+            ยังไม่มีประวัติการทำนาย
+        </div>
+    {% endif %}
+</div>
+
+<!-- RESULTS TABLE -->
+<div class="card">
+    <div class="section-title">🏆 ประวัติผลรางวัลทั้งหมด</div>
+    {% if results %}
+    <div class="table-scroll">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>วันที่</th>
+                    <th>รางวัลที่ 1</th>
+                    <th>2 ตัวท้าย</th>
+                    <th>3 ตัวท้าย</th>
+                    <th>บันทึกเมื่อ</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td><span class="badge badge-gold">{{ r.draw_date|date:"d/m/Y" }}</span></td>
+                    <td class="number-big">{{ r.first_prize }}</td>
+                    <td style="font-weight:600;">{{ r.last_two }}</td>
+                    <td style="font-weight:600;">{{ r.last_three }}</td>
+                    <td style="font-size:0.8rem; color:var(--text-muted);">{{ r.created_at|date:"d/m/Y H:i" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    </div>
+    {% else %}
+        <div style="text-align:center; padding:2rem; color:var(--text-muted);">
+            ยังไม่มีข้อมูลผลรางวัล กดดึงข้อมูลที่หน้าหลักก่อน
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

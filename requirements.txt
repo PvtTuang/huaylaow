@@ -1,0 +1,11 @@
+django>=4.2
+serpapi
+scikit-learn
+numpy
+pandas
+APScheduler
+python-dotenv
+requests
+beautifulsoup4
+gunicorn
+whitenoise
