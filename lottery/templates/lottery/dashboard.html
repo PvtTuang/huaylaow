@@ -167,10 +167,10 @@
 
     <!-- Prediction -->
     <div class="card">
-        <div class="card-title">🔮 ทำนายงวดถัดไป</div>
+        <div class="card-title">ทำนายงวดถัดไป</div>
         {% if prediction %}
             <div class="badge badge-red" style="margin-bottom: 1rem; display: inline-flex; align-items: center; gap: 0.5rem;">
-                📅 งวด {{ prediction.target_date|date:"d M Y" }}
+                งวด {{ prediction.target_date|date:"d M Y" }}
             </div>
             <div>
                 <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.75rem;">รางวัลที่ 1 (ทำนาย)</div>
@@ -211,7 +211,7 @@
 
     <!-- Accuracy Stats -->
     <div class="card">
-        <div class="card-title">📈 สถิติความแม่นยำ</div>
+        <div class="card-title">สถิติความแม่นยำ</div>
         {% if stats.total > 0 %}
             <div class="stats-row">
                 <div class="stat-mini">
@@ -240,7 +240,7 @@
 
     <!-- Hot Numbers -->
     <div class="card">
-        <div class="card-title">🔥 ตัวเลขออกบ่อย (20 งวดล่าสุด)</div>
+        <div class="card-title">ตัวเลขออกบ่อย (20 งวดล่าสุด)</div>
         {% if hot_numbers %}
             <div class="hot-row">
                 {% for digit, count in hot_numbers %}
@@ -264,7 +264,7 @@
 <!-- RECENT RESULTS TABLE -->
 <div class="card fade-in delay-3">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-        <div class="card-title" style="margin-bottom:0;">📋 ผลย้อนหลัง 10 งวด</div>
+        <div class="card-title" style="margin-bottom:0;">ผลย้อนหลัง 10 งวด</div>
         <a href="/history/" class="btn btn-outline" style="padding:0.4rem 1rem; font-size:0.8rem;">ดูทั้งหมด →</a>
     </div>
     {% if recent_results %}

@@ -59,8 +59,6 @@
         border-radius: 12px;
         overflow: hidden;
         border: 1px solid var(--border);
-    }
-    .table-scroll {
         overflow-x: auto;
     }
 
@@ -97,7 +95,7 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>📊 ประวัติผลหวย & การทำนาย</h1>
+    <h1>ประวัติผลหวย & การทำนาย</h1>
     <p>ข้อมูลผลรางวัลย้อนหลังและการติดตามความแม่นยำของระบบ AI</p>
 </div>
 
@@ -131,9 +129,8 @@
 
 <!-- PREDICTIONS TABLE -->
 <div class="card" style="margin-bottom:1.5rem;">
-    <div class="section-title">🔮 ประวัติการทำนาย (30 งวดล่าสุด)</div>
+    <div class="section-title">ประวัติการทำนาย (30 งวดล่าสุด)</div>
     {% if predictions %}
-    <div class="table-scroll">
     <div class="table-wrapper">
         <table>
             <thead>
@@ -174,25 +171,24 @@
                         {% if p.is_correct_two is None %}
                             <span class="correct-pending">-</span>
                         {% elif p.is_correct_two %}
-                            <span class="correct-yes">✓ ถูก</span>
+                            <span class="correct-yes">ถูก</span>
                         {% else %}
-                            <span class="correct-no">✗ ผิด</span>
+                            <span class="correct-no">ผิด</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if p.is_correct_three is None %}
                             <span class="correct-pending">-</span>
                         {% elif p.is_correct_three %}
-                            <span class="correct-yes">✓ ถูก</span>
+                            <span class="correct-yes">ถูก</span>
                         {% else %}
-                            <span class="correct-no">✗ ผิด</span>
+                            <span class="correct-no">ผิด</span>
                         {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-    </div>
     </div>
     {% else %}
         <div style="text-align:center; padding:2rem; color:var(--text-muted);">
@@ -203,9 +199,8 @@
 
 <!-- RESULTS TABLE -->
 <div class="card">
-    <div class="section-title">🏆 ประวัติผลรางวัลทั้งหมด</div>
+    <div class="section-title">ประวัติผลรางวัลทั้งหมด</div>
     {% if results %}
-    <div class="table-scroll">
     <div class="table-wrapper">
         <table>
             <thead>
@@ -229,7 +224,6 @@
                 {% endfor %}
             </tbody>
         </table>
-    </div>
     </div>
     {% else %}
         <div style="text-align:center; padding:2rem; color:var(--text-muted);">
