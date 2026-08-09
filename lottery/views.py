@@ -8,6 +8,7 @@ from django.utils import timezone  # ใช้ timezone ของ Django แท�
 from lottery.models import LotteryResult, Prediction, FetchLog
 from lottery.services.predictor import predict_next, save_prediction, get_accuracy_stats
 from lottery.services.fetcher import fetch_and_save
+import traceback
 
 # ตั้งค่า Logger สำหรับแสดงผลใน Render Logs
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ def dashboard(request):
         except Exception as e:
             # พิมพ์ Error ลง Console/Render Logs เพื่อติดตามสาเหตุ
             print(f"❌ [Dashboard Prediction Error]: {e}")
+            traceback.print_exc()
             logger.error(f"Prediction failed for {tomorrow}: {e}", exc_info=True)
             prediction = None
     
