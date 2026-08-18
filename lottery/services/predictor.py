@@ -326,29 +326,32 @@ def predict_next(target_date: date = None) -> dict:
         if sample_digits:
             prize_len = len(sample_digits)
 
-    predicted, confidence = ensemble_predict(history, prize_len, target_date)
+    # Dynamic Ensemble: แต่ละวันได้เลขต่างกัน ไม่ซ้ำ
+    predicted_full, confidence = ensemble_predict(history, prize_len, target_date)
 
     return {
-        'predicted_first': predicted,
-        'predicted_two': predicted[-2:] if len(predicted) >= 2 else '',
-        'predicted_three': predicted[-3:] if len(predicted) >= 3 else '',
+        'predicted_first': predicted_full,
+        'predicted_two':   predicted_full[-2:] if len(predicted_full) >= 2 else '00',
+        'predicted_three': predicted_full[-3:] if len(predicted_full) >= 3 else '000',
         'confidence': round(confidence, 1),
-        'model_used': 'ensemble (weighted_freq + gap + markov + rf)',
+        'model_used': 'ensemble',
         'based_on': len(history),
     }
 
 
 def save_prediction(target_date: date = None) -> 'Prediction':
-    """สร้างและบันทึก prediction ลง DB"""
-    from lottery.models import Prediction
+    """สร้างและบันทึก prediction ลง DB (ป้องกันรายการซ้ำซ้อน)"""
+    from lottery.models import Prediction, LotteryResult
 
     if target_date is None:
         target_date = date.today() + timedelta(days=1)
 
-    # ลบ prediction เก่าของวันนั้น
+    # ลบ prediction เก่าทั้งหมดของวันนั้นเพื่อป้องกันการซ้ำซ้อน
     Prediction.objects.filter(target_date=target_date).delete()
 
     result = predict_next(target_date)
+
+    actual = LotteryResult.objects.filter(draw_date=target_date).first()
 
     pred = Prediction.objects.create(
         target_date=target_date,
@@ -357,7 +360,11 @@ def save_prediction(target_date: date = None) -> 'Prediction':
         predicted_three=result['predicted_three'],
         confidence=result['confidence'],
         model_used=result.get('model_used', 'ensemble'),
+        actual_result=actual,
     )
+
+    if actual:
+        pred.evaluate()
 
     logger.info(f"บันทึก prediction งวด {target_date}: {result['predicted_first']} (confidence: {result['confidence']}%)")
     return pred
@@ -387,3 +394,39 @@ def get_accuracy_stats() -> dict:
         'acc_three': round(correct_three / total * 100, 1),
         'acc_first': round(correct_first / total * 100, 1),
     }
+
+
+def get_statistical_analysis(limit=30) -> dict:
+    """
+    วิเคราะห์สถิติทางวิทยาศาสตร์:
+    - Sum Window & Average Sum
+    - Digital Root Frequency
+    - Sample Size Features
+    """
+    history = _get_history(limit=limit)
+    if not history:
+        return {'avg_sum': 0, 'min_sum': 0, 'max_sum': 0, 'digital_roots': {}, 'common_digital_root': '-', 'total_analyzed': 0}
+
+    sums = []
+    digital_roots = Counter()
+
+    for lr in history:
+        digits = _extract_digits(lr)
+        if digits:
+            s = sum(digits)
+            sums.append(s)
+            dr = (s - 1) % 9 + 1 if s > 0 else 0
+            digital_roots[dr] += 1
+
+    avg_sum = round(sum(sums) / len(sums), 1) if sums else 0
+    common_dr = digital_roots.most_common(1)[0][0] if digital_roots else '-'
+
+    return {
+        'avg_sum': avg_sum,
+        'min_sum': min(sums) if sums else 0,
+        'max_sum': max(sums) if sums else 0,
+        'digital_roots': dict(digital_roots.most_common(3)),
+        'common_digital_root': common_dr,
+        'total_analyzed': len(history),
+    }
+

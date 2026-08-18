@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.utils import timezone  # ใช้ timezone ของ Django แทน date.today()
 
 from lottery.models import LotteryResult, Prediction, FetchLog
-from lottery.services.predictor import predict_next, save_prediction, get_accuracy_stats
+from lottery.services.predictor import predict_next, save_prediction, get_accuracy_stats, get_statistical_analysis
 from lottery.services.fetcher import fetch_and_save
 import traceback
 
@@ -17,11 +17,19 @@ logger = logging.getLogger(__name__)
 def dashboard(request):
     """หน้าหลัก - แสดงผลล่าสุด + prediction"""
     # ผลล่าสุด
-    latest = LotteryResult.objects.first()
-    
     # ดึงวันที่ปัจจุบันตาม Timezone ที่ตั้งไว้ใน settings.py (Asia/Bangkok)
     today = timezone.localdate()
     tomorrow = today + timedelta(days=1)
+    
+    latest = LotteryResult.objects.first()
+    
+    # ถ้ายังไม่มีผลหวยของวันนี้ในระบบ (เช่น กรณีผู้ใช้เปิดหน้าเว็บหลัง 20:30 น.) ให้ลองดึงอัตโนมัติทันที
+    if not latest or latest.draw_date < today:
+        try:
+            fetch_and_save(today)
+            latest = LotteryResult.objects.first()
+        except Exception as e:
+            logger.error(f"Auto-fetch failed on dashboard: {e}")
     
     # ค้นหา Prediction งวดถัดไป
     # ถ้ายังไม่มี prediction ของพรุ่งนี้ → สร้างใหม่ทันที
@@ -44,12 +52,16 @@ def dashboard(request):
     # hot numbers (ออกบ่อยใน 20 งวดล่าสุด)
     hot_numbers = _calc_hot_numbers(20)
     
+    # statistical analysis (Sum Window, Digital Root, etc.)
+    stat_analysis = get_statistical_analysis(30)
+    
     context = {
         'latest': latest,
         'prediction': prediction,
         'recent_results': recent_results,
         'stats': stats,
         'hot_numbers': hot_numbers,
+        'stat_analysis': stat_analysis,
         'today': today,
         'tomorrow': tomorrow,
     }

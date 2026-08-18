@@ -36,24 +36,24 @@ def start():
 
     _scheduler = BackgroundScheduler(timezone="Asia/Bangkok")
 
-    # ดึงข้อมูลทุกวัน เวลา 18:30 (หลังหวยออก)
+    # ดึงข้อมูลอัตโนมัติรอบเวลา 20:30 - 21:00 น. ทุก 5 นาที (เวลาหวยลาวพัฒนาออกผล)
     _scheduler.add_job(
         fetch_daily,
-        trigger=CronTrigger(hour=18, minute=30),
-        id='fetch_daily',
+        trigger=CronTrigger(hour='20', minute='30,35,40,45,50,55'),
+        id='fetch_daily_draw_time',
         replace_existing=True,
     )
 
-    # ดึงอีกรอบ 21:00 เผื่อข้อมูลอัปเดตช้า
+    # ดึงเก็บตกช่วง 21:15 น. เผื่อเว็บต้นทางอัปเดตช้า
     _scheduler.add_job(
         fetch_daily,
-        trigger=CronTrigger(hour=21, minute=0),
-        id='fetch_daily_retry',
+        trigger=CronTrigger(hour=21, minute=15),
+        id='fetch_daily_late_retry',
         replace_existing=True,
     )
 
     _scheduler.start()
-    logger.info("[Scheduler] started - จะดึงข้อมูลอัตโนมัติ 18:30 และ 21:00 น.")
+    logger.info("[Scheduler] started - จะดึงข้อมูลอัตโนมัติช่วง 20:30 - 21:00 น. (ทุก 5 นาที)")
 
 
 def stop():

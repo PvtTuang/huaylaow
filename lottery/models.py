@@ -80,13 +80,18 @@ class Prediction(models.Model):
         return f"ทำนายงวด {self.target_date} -> {self.predicted_first}"
     
     def evaluate(self):
-        """เปรียบเทียบกับผลจริงและบันทึก"""
+        """เปรียบเทียบกับผลจริงและบันทึก (รองรับชุดเลขทำนายหลายชุด)"""
         if not self.actual_result:
             return
         real = self.actual_result
-        self.is_correct_first = (self.predicted_first == real.first_prize)
-        self.is_correct_two = (self.predicted_two == real.last_two) if self.predicted_two else False
-        self.is_correct_three = (self.predicted_three == real.last_three) if self.predicted_three else False
+        
+        twos = [t.strip() for t in self.predicted_two.replace('/', ',').split(',') if t.strip()]
+        threes = [t.strip() for t in self.predicted_three.replace('/', ',').split(',') if t.strip()]
+        firsts = [f.strip() for f in self.predicted_first.replace('/', ',').split(',') if f.strip()]
+
+        self.is_correct_first = (real.first_prize in firsts) if firsts else False
+        self.is_correct_two = (real.last_two in twos) if twos else False
+        self.is_correct_three = (real.last_three in threes) if threes else False
         self.save()
 
 
