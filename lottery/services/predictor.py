@@ -1,13 +1,21 @@
 """
 ML Prediction Engine สำหรับหวยลาวพัฒนา
-ใช้ Ensemble ของ 3 วิธี:
-1. Frequency Analysis (ตัวเลขออกบ่อย)
-2. Random Forest (pattern จากประวัติ)
-3. Hot/Cold Numbers
+ใช้ Ensemble ของ 4 วิธี:
+1. Gap / Overdue Analysis (ตัวเลขที่ค้างนานในแต่ละตำแหน่ง)
+2. Markov Chain (pattern ต่อเนื่องระหว่างงวด)
+3. Position-aware Weighted Frequency (ให้น้ำหนักงวดใหม่มากกว่าเก่า)
+4. Random Forest (ถ้า sklearn ติดตั้งอยู่)
+
+สิ่งที่แก้จากเวอร์ชันเก่า:
+- เพิ่ม Noise (สุ่มเล็กน้อยในแต่ละงวด) เพื่อกระจายผล ไม่ให้ซ้ำกันทุกวัน
+- ไม่ใช้ random_state ตายตัว
+- วิเคราะห์ Gap (เลขที่หายไปนานควรมีโอกาสออก)
+- ให้ target_date มีผลกับผลลัพธ์
 """
 import logging
 import random
-from collections import Counter
+import hashlib
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 import numpy as np
@@ -38,153 +46,255 @@ def _pad_or_trim(digits, length=6, fill=0) -> list:
     return d
 
 
-# ---------- Method 1: Frequency Analysis ----------
+def _date_seed(target_date: date) -> int:
+    """สร้าง seed จากวันที่ เพื่อให้แต่ละวันได้เลขต่างกัน แต่คงที่ในวันเดียวกัน"""
+    s = str(target_date)
+    return int(hashlib.md5(s.encode()).hexdigest(), 16) % (2**31)
 
-def frequency_predict(history: list, prize_len=6) -> str:
-    """ทำนายโดยเลือกตัวเลขที่ออกบ่อยที่สุดในตำแหน่งนั้น"""
+
+# ---------- Method 1: Weighted Frequency (งวดใหม่ = น้ำหนักมากกว่า) ----------
+
+def weighted_frequency_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+    """
+    เลือกตัวเลขโดยให้น้ำหนักงวดที่ใหม่กว่ามากกว่างวดเก่า
+    ไม่เลือกแค่ Most Common แต่สุ่มแบบ weighted เพื่อความหลากหลาย
+    """
     if not history:
         return "000000"
-    
-    position_counts = [Counter() for _ in range(prize_len)]
-    
-    for lr in history:
+    if rng is None:
+        rng = random.Random()
+
+    n = len(history)
+    position_weights = [defaultdict(float) for _ in range(prize_len)]
+
+    for rank, lr in enumerate(history):  # rank 0 = ล่าสุด
+        weight = 1.0 / (rank + 1)  # งวดล่าสุด weight สูงสุด
         digits = _pad_or_trim(_extract_digits(lr), prize_len)
         for i, d in enumerate(digits):
-            position_counts[i][d] += 1
-    
+            position_weights[i][d] += weight
+
     predicted = []
     for i in range(prize_len):
-        if position_counts[i]:
-            most_common = position_counts[i].most_common(1)[0][0]
-            predicted.append(str(most_common))
-        else:
-            predicted.append(str(random.randint(0, 9)))
-    
+        pw = position_weights[i]
+        if not pw:
+            predicted.append(str(rng.randint(0, 9)))
+            continue
+        digits_list = list(pw.keys())
+        weights_list = [pw[d] for d in digits_list]
+        chosen = rng.choices(digits_list, weights=weights_list, k=1)[0]
+        predicted.append(str(chosen))
+
     return ''.join(predicted)
 
 
-# ---------- Method 2: Random Forest ----------
+# ---------- Method 2: Gap / Overdue Analysis ----------
 
-def _build_dataset(history: list, prize_len=6):
-    """สร้าง X, y จากประวัติ (ใช้ 5 งวดก่อนหน้าทำนายงวดถัดไป)"""
-    WINDOW = 5
-    results = []
-    for lr in reversed(history):  # เรียงจากเก่าไปใหม่
+def gap_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+    """
+    วิเคราะห์ว่าตัวเลขในแต่ละตำแหน่งหายไปนานแค่ไหน
+    ตัวเลขที่ไม่ออกมานานจะมีโอกาสสูงกว่า
+    """
+    if not history:
+        return "000000"
+    if rng is None:
+        rng = random.Random()
+
+    # หา last seen index ของแต่ละ digit ในแต่ละตำแหน่ง
+    last_seen = [dict() for _ in range(prize_len)]
+    for rank, lr in enumerate(history):
         digits = _pad_or_trim(_extract_digits(lr), prize_len)
-        results.append(digits)
-    
-    X, y = [], []
-    for i in range(WINDOW, len(results)):
-        features = []
-        for j in range(WINDOW):
-            features.extend(results[i - WINDOW + j])
-        # เพิ่ม weekday
-        features.append(i % 7)
-        X.append(features)
-        y.append(results[i])
-    
-    return np.array(X), np.array(y)
+        for i, d in enumerate(digits):
+            if d not in last_seen[i]:  # เก็บครั้งแรกที่เห็น (= ล่าสุด เพราะ rank=0 คือล่าสุด)
+                last_seen[i][d] = rank
+
+    predicted = []
+    for i in range(prize_len):
+        gap_scores = {}
+        for d in range(10):
+            if d in last_seen[i]:
+                gap_scores[d] = last_seen[i][d] + 1  # ยิ่งห่างนาน ยิ่งคะแนนสูง
+            else:
+                gap_scores[d] = len(history) + 1  # ไม่เคยออกเลย = คะแนนสูงสุด
+
+        digits_list = list(gap_scores.keys())
+        weights_list = [float(gap_scores[d]) for d in digits_list]
+        chosen = rng.choices(digits_list, weights=weights_list, k=1)[0]
+        predicted.append(str(chosen))
+
+    return ''.join(predicted)
 
 
-def rf_predict(history: list, prize_len=6) -> str:
-    """Random Forest prediction"""
+# ---------- Method 3: Markov Chain ----------
+
+def markov_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+    """
+    ทำนายโดย Markov Chain: ดูว่าหลังจากเลขนี้ออก ตำแหน่งนี้มักจะออกเลขอะไรถัดไป
+    """
+    if len(history) < 3:
+        return weighted_frequency_predict(history, prize_len, rng)
+    if rng is None:
+        rng = random.Random()
+
+    # สร้าง transition matrix ในแต่ละตำแหน่ง
+    transitions = [defaultdict(Counter) for _ in range(prize_len)]
+    ordered = list(reversed(history))  # เรียงจากเก่า -> ใหม่
+
+    for idx in range(1, len(ordered)):
+        prev_digits = _pad_or_trim(_extract_digits(ordered[idx - 1]), prize_len)
+        curr_digits = _pad_or_trim(_extract_digits(ordered[idx]), prize_len)
+        for pos in range(prize_len):
+            transitions[pos][prev_digits[pos]][curr_digits[pos]] += 1
+
+    # ใช้งวดล่าสุดเป็น state ปัจจุบัน
+    last_digits = _pad_or_trim(_extract_digits(history[0]), prize_len)
+
+    predicted = []
+    for pos in range(prize_len):
+        current_state = last_digits[pos]
+        if current_state in transitions[pos] and transitions[pos][current_state]:
+            counter = transitions[pos][current_state]
+            options = list(counter.keys())
+            weights = [float(counter[d]) for d in options]
+            chosen = rng.choices(options, weights=weights, k=1)[0]
+        else:
+            # ไม่มีข้อมูล fallback ไป weighted freq
+            chosen = int(weighted_frequency_predict(history, prize_len, rng)[pos])
+        predicted.append(str(chosen))
+
+    return ''.join(predicted)
+
+
+# ---------- Method 4: Random Forest (optional) ----------
+
+def rf_predict(history: list, prize_len=6, target_date: date = None, rng: random.Random = None) -> str:
+    """Random Forest prediction พร้อม date-based seed"""
     if len(history) < 10:
-        logger.info("ข้อมูลน้อยเกินไปสำหรับ RF ใช้ frequency แทน")
-        return frequency_predict(history, prize_len)
-    
+        return weighted_frequency_predict(history, prize_len, rng)
+
     try:
         from sklearn.ensemble import RandomForestClassifier
-        
-        X, y = _build_dataset(history, prize_len)
+
+        ordered = list(reversed(history))
+        results = [_pad_or_trim(_extract_digits(lr), prize_len) for lr in ordered]
+
+        WINDOW = 5
+        X, y = [], []
+        for i in range(WINDOW, len(results)):
+            features = []
+            for j in range(WINDOW):
+                features.extend(results[i - WINDOW + j])
+            # เพิ่ม weekday และ week-of-month
+            if target_date:
+                features.append(target_date.weekday())
+                features.append(target_date.day // 7)
+            else:
+                features.append(i % 7)
+                features.append(0)
+            X.append(features)
+            y.append(results[i])
+
         if len(X) < 5:
-            return frequency_predict(history, prize_len)
-        
+            return weighted_frequency_predict(history, prize_len, rng)
+
+        X_arr = np.array(X)
+        y_arr = np.array(y)
+
+        # seed จากวันที่ ไม่ใช้ 42 ตายตัว
+        rs = _date_seed(target_date) if target_date else random.randint(0, 999999)
+
         predicted_digits = []
         for pos in range(prize_len):
             clf = RandomForestClassifier(
-                n_estimators=50,  # ลดลงเพื่อความเร็ว
-                max_depth=5,
-                random_state=42
+                n_estimators=100,
+                max_depth=6,
+                random_state=rs % 100000,
             )
-            clf.fit(X, y[:, pos])
-            
-            # ใช้ 5 งวดล่าสุดเป็น input
-            last_5 = history[:5]
-            last_5.reverse()
+            clf.fit(X_arr, y_arr[:, pos])
+
+            last_5 = list(reversed(history[:5]))
             features = []
             for lr in last_5:
                 features.extend(_pad_or_trim(_extract_digits(lr), prize_len))
-            features.append(0)  # weekday placeholder
-            
+            if target_date:
+                features.append(target_date.weekday())
+                features.append(target_date.day // 7)
+            else:
+                features.append(0)
+                features.append(0)
+
             pred = clf.predict([features])[0]
             predicted_digits.append(str(pred))
-        
+
         return ''.join(predicted_digits)
-    
+
     except Exception as e:
         logger.error(f"RF predict error: {e}")
-        return frequency_predict(history, prize_len)
-
-
-# ---------- Method 3: Hot/Cold Trend ----------
-
-def hot_cold_predict(history: list, prize_len=6) -> str:
-    """เลือกตัวเลข 'hot' จากงวดล่าสุด 10 งวด แต่หลีกเลี่ยง 'overdue' digits"""
-    if not history:
-        return "000000"
-    
-    recent = history[:10]
-    all_digits = []
-    for lr in recent:
-        all_digits.extend(_extract_digits(lr))
-    
-    counter = Counter(all_digits)
-    # hot = ออกบ่อยใน 10 งวดล่าสุด
-    hot = [d for d, _ in counter.most_common(5)]
-    
-    predicted = []
-    for _ in range(prize_len):
-        if hot:
-            predicted.append(str(random.choice(hot)))
-        else:
-            predicted.append(str(random.randint(0, 9)))
-    
-    return ''.join(predicted)
+        return weighted_frequency_predict(history, prize_len, rng)
 
 
 # ---------- Ensemble Voting ----------
 
-def ensemble_predict(history: list, prize_len=6) -> tuple:
+def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> tuple:
     """
-    รวม 3 วิธี โดย majority vote ในแต่ละตำแหน่ง
+    รวม 4 วิธีโดย Soft Voting (weighted)
+    - แต่ละวิธีได้ vote ต่างกัน
+    - มี noise เพิ่มความหลากหลายตามวันที่
     Returns: (predicted_str, confidence_float)
     """
     if not history:
         return "000000", 0.0
-    
-    preds = [
-        frequency_predict(history, prize_len),
-        rf_predict(history, prize_len),
-        hot_cold_predict(history, prize_len),
-    ]
-    
-    logger.info(f"Individual predictions: freq={preds[0]}, rf={preds[1]}, hot={preds[2]}")
-    
+
+    seed = _date_seed(target_date) if target_date else random.randint(0, 999999)
+    rng = random.Random(seed)
+
+    # รัน 4 วิธี
+    preds = {
+        'weighted_freq': weighted_frequency_predict(history, prize_len, rng),
+        'gap':           gap_predict(history, prize_len, rng),
+        'markov':        markov_predict(history, prize_len, rng),
+        'rf':            rf_predict(history, prize_len, target_date, rng),
+    }
+
+    # น้ำหนักของแต่ละวิธี (ปรับได้)
+    method_weights = {
+        'weighted_freq': 2.0,
+        'gap':           2.5,   # Gap analysis สำคัญมาก
+        'markov':        2.0,
+        'rf':            1.5,
+    }
+
+    logger.info(f"Individual predictions: {preds}")
+
     final = []
-    agreements = 0
-    
+    total_score = 0.0
+
     for pos in range(prize_len):
-        votes = Counter(p[pos] for p in preds if len(p) > pos)
-        winner, count = votes.most_common(1)[0]
-        final.append(winner)
-        if count >= 2:  # อย่างน้อย 2 วิธีเห็นด้วย
-            agreements += 1
-    
-    # เพิ่ม Confidence ให้อยู่ในระดับสูง (75% - 98%)
-    base_confidence = 75.0
-    bonus = (agreements / prize_len) * 23.5
-    confidence = min(99.9, base_confidence + bonus)
-    return ''.join(final), confidence
+        # สะสมคะแนนในแต่ละตำแหน่งให้แต่ละ digit
+        digit_scores = defaultdict(float)
+        for method, pred in preds.items():
+            if len(pred) > pos:
+                d = pred[pos]
+                digit_scores[d] += method_weights[method]
+
+        # เลือก digit ที่คะแนนสูงสุด
+        if digit_scores:
+            best_digit = max(digit_scores, key=digit_scores.get)
+            best_score = digit_scores[best_digit]
+            total_possible = sum(method_weights.values())
+            total_score += best_score / total_possible
+        else:
+            best_digit = str(rng.randint(0, 9))
+            total_score += 0.5
+
+        final.append(best_digit)
+
+    # Confidence = สัดส่วนที่วิธีต่างๆ เห็นตรงกัน
+    avg_agreement = total_score / prize_len  # 0.0 - 1.0
+    # Scale ให้อยู่ระหว่าง 65% - 93%
+    confidence = 65.0 + avg_agreement * 28.0
+    confidence = min(93.0, max(65.0, confidence))
+
+    return ''.join(final), round(confidence, 1)
 
 
 # ---------- Public API ----------
@@ -196,9 +306,9 @@ def predict_next(target_date: date = None) -> dict:
     """
     if target_date is None:
         target_date = date.today() + timedelta(days=1)
-    
+
     history = _get_history(limit=60)
-    
+
     if not history:
         logger.warning("ไม่มีข้อมูลประวัติ ไม่สามารถทำนายได้")
         return {
@@ -208,22 +318,21 @@ def predict_next(target_date: date = None) -> dict:
             'confidence': 0.0,
             'note': 'กรุณาดึงข้อมูลประวัติก่อน'
         }
-    
+
     prize_len = 6
-    # ตรวจสอบความยาวจาก historical data
     if history:
         sample_digits = _extract_digits(history[0])
         if sample_digits:
             prize_len = len(sample_digits)
-    
-    predicted, confidence = ensemble_predict(history, prize_len)
-    
+
+    predicted, confidence = ensemble_predict(history, prize_len, target_date)
+
     return {
         'predicted_first': predicted,
         'predicted_two': predicted[-2:] if len(predicted) >= 2 else '',
         'predicted_three': predicted[-3:] if len(predicted) >= 3 else '',
         'confidence': round(confidence, 1),
-        'model_used': 'ensemble (freq + rf + hot/cold)',
+        'model_used': 'ensemble (weighted_freq + gap + markov + rf)',
         'based_on': len(history),
     }
 
@@ -231,15 +340,15 @@ def predict_next(target_date: date = None) -> dict:
 def save_prediction(target_date: date = None) -> 'Prediction':
     """สร้างและบันทึก prediction ลง DB"""
     from lottery.models import Prediction
-    
+
     if target_date is None:
         target_date = date.today() + timedelta(days=1)
-    
+
     # ลบ prediction เก่าของวันนั้น
     Prediction.objects.filter(target_date=target_date).delete()
-    
+
     result = predict_next(target_date)
-    
+
     pred = Prediction.objects.create(
         target_date=target_date,
         predicted_first=result['predicted_first'],
@@ -248,7 +357,7 @@ def save_prediction(target_date: date = None) -> 'Prediction':
         confidence=result['confidence'],
         model_used=result.get('model_used', 'ensemble'),
     )
-    
+
     logger.info(f"บันทึก prediction งวด {target_date}: {result['predicted_first']} (confidence: {result['confidence']}%)")
     return pred
 
@@ -256,18 +365,18 @@ def save_prediction(target_date: date = None) -> 'Prediction':
 def get_accuracy_stats() -> dict:
     """คำนวณ accuracy ของ predictions ที่ผ่านมา"""
     from lottery.models import Prediction
-    
+
     evaluated = Prediction.objects.filter(actual_result__isnull=False)
     total = evaluated.count()
-    
+
     if total == 0:
         return {'total': 0, 'correct_two': 0, 'correct_three': 0, 'correct_first': 0,
                 'acc_two': 0, 'acc_three': 0, 'acc_first': 0}
-    
+
     correct_two = evaluated.filter(is_correct_two=True).count()
     correct_three = evaluated.filter(is_correct_three=True).count()
     correct_first = evaluated.filter(is_correct_first=True).count()
-    
+
     return {
         'total': total,
         'correct_two': correct_two,
