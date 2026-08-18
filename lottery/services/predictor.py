@@ -57,7 +57,7 @@ def _date_seed(target_date: date) -> int:
 def weighted_frequency_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
     """
     เลือกตัวเลขโดยให้น้ำหนักงวดที่ใหม่กว่ามากกว่างวดเก่า
-    ไม่เลือกแค่ Most Common แต่สุ่มแบบ weighted เพื่อความหลากหลาย
+    ใช้ Laplace Smoothing (base weight 0.5) เพื่อให้ทุกเลข 0-9 มีโอกาสเสมอ
     """
     if not history:
         return "000000"
@@ -65,9 +65,10 @@ def weighted_frequency_predict(history: list, prize_len=6, rng: random.Random = 
         rng = random.Random()
 
     n = len(history)
-    position_weights = [defaultdict(float) for _ in range(prize_len)]
+    # เริ่มต้นทุกเลข 0-9 มี base weight = 0.5 (Laplace Smoothing)
+    position_weights = [{d: 0.5 for d in range(10)} for _ in range(prize_len)]
 
-    for rank, lr in enumerate(history):  # rank 0 = ล่าสุด
+    for rank, lr in enumerate(history):
         weight = 1.0 / (rank + 1)  # งวดล่าสุด weight สูงสุด
         digits = _pad_or_trim(_extract_digits(lr), prize_len)
         for i, d in enumerate(digits):
@@ -76,10 +77,7 @@ def weighted_frequency_predict(history: list, prize_len=6, rng: random.Random = 
     predicted = []
     for i in range(prize_len):
         pw = position_weights[i]
-        if not pw:
-            predicted.append(str(rng.randint(0, 9)))
-            continue
-        digits_list = list(pw.keys())
+        digits_list = list(range(10))
         weights_list = [pw[d] for d in digits_list]
         chosen = rng.choices(digits_list, weights=weights_list, k=1)[0]
         predicted.append(str(chosen))
@@ -93,18 +91,20 @@ def gap_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
     """
     วิเคราะห์ว่าตัวเลขในแต่ละตำแหน่งหายไปนานแค่ไหน
     ตัวเลขที่ไม่ออกมานานจะมีโอกาสสูงกว่า
+    ใช้ Laplace Smoothing เพื่อให้ทุกเลข 0-9 มีโอกาสเสมอ
     """
     if not history:
         return "000000"
     if rng is None:
         rng = random.Random()
 
-    # หา last seen index ของแต่ละ digit ในแต่ละตำแหน่ง
+    n = len(history)
+    # หา last seen index (rank 0 = ล่าสุด)
     last_seen = [dict() for _ in range(prize_len)]
     for rank, lr in enumerate(history):
         digits = _pad_or_trim(_extract_digits(lr), prize_len)
         for i, d in enumerate(digits):
-            if d not in last_seen[i]:  # เก็บครั้งแรกที่เห็น (= ล่าสุด เพราะ rank=0 คือล่าสุด)
+            if d not in last_seen[i]:
                 last_seen[i][d] = rank
 
     predicted = []
@@ -114,10 +114,11 @@ def gap_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
             if d in last_seen[i]:
                 gap_scores[d] = last_seen[i][d] + 1  # ยิ่งห่างนาน ยิ่งคะแนนสูง
             else:
-                gap_scores[d] = len(history) + 1  # ไม่เคยออกเลย = คะแนนสูงสุด
+                gap_scores[d] = n + 10  # ไม่เคยออก = คะแนนสูงมาก
 
-        digits_list = list(gap_scores.keys())
-        weights_list = [float(gap_scores[d]) for d in digits_list]
+        # Normalize ให้สมดุล: square root เพื่อลด bias
+        digits_list = list(range(10))
+        weights_list = [float(gap_scores[d]) ** 0.6 for d in digits_list]
         chosen = rng.choices(digits_list, weights=weights_list, k=1)[0]
         predicted.append(str(chosen))
 
@@ -255,11 +256,11 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> tu
         'rf':            rf_predict(history, prize_len, target_date, rng),
     }
 
-    # น้ำหนักของแต่ละวิธี (ปรับได้)
+    # น้ำหนักของแต่ละวิธี
     method_weights = {
-        'weighted_freq': 2.0,
-        'gap':           2.5,   # Gap analysis สำคัญมาก
-        'markov':        2.0,
+        'weighted_freq': 1.5,
+        'gap':           4.0,   # Gap analysis สูงสุด — ช่วยทำลาย bias
+        'markov':        1.0,   # ลดลง เพราะมักดึงเลขซ้ำจากประวัติ
         'rf':            1.5,
     }
 

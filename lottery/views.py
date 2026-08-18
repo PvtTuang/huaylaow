@@ -24,15 +24,15 @@ def dashboard(request):
     tomorrow = today + timedelta(days=1)
     
     # ค้นหา Prediction งวดถัดไป
-    prediction = Prediction.objects.filter(target_date__gte=today).first()
+    # ถ้ายังไม่มี prediction ของพรุ่งนี้ → สร้างใหม่ทันที
+    prediction = Prediction.objects.filter(target_date=tomorrow).first()
     if not prediction:
         try:
             prediction = save_prediction(tomorrow)
         except Exception as e:
-            # พิมพ์ Error ลง Console/Render Logs เพื่อติดตามสาเหตุ
-            print(f"❌ [Dashboard Prediction Error]: {e}")
+            print(f"[Dashboard Prediction Error]: {e}")
             traceback.print_exc()
-            logger.error(f"Prediction failed for : {tomorrow}: {e}", exc_info=True)
+            logger.error(f"Prediction failed for {tomorrow}: {e}", exc_info=True)
             prediction = None
     
     # ประวัติย้อนหลัง 10 งวด
