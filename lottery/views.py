@@ -19,7 +19,6 @@ def dashboard(request):
     # ผลล่าสุด
     # ดึงวันที่ปัจจุบันตาม Timezone ที่ตั้งไว้ใน settings.py (Asia/Bangkok)
     today = timezone.localdate()
-    tomorrow = today + timedelta(days=1)
     
     latest = LotteryResult.objects.first()
     
@@ -32,16 +31,39 @@ def dashboard(request):
             logger.error(f"Auto-fetch failed on dashboard: {e}")
     
     # ค้นหา Prediction งวดถัดไป
-    # ถ้ายังไม่มี prediction ของพรุ่งนี้ → สร้างใหม่ทันที
-    prediction = Prediction.objects.filter(target_date=tomorrow).first()
+    from lottery.services.utils import get_next_draw_date
+    now_local = timezone.localtime()
+    next_draw_date = get_next_draw_date(now_local)
+    
+    prediction = Prediction.objects.filter(target_date=next_draw_date).first()
     if not prediction:
         try:
-            prediction = save_prediction(tomorrow)
+            prediction = save_prediction(next_draw_date)
         except Exception as e:
             print(f"[Dashboard Prediction Error]: {e}")
             traceback.print_exc()
-            logger.error(f"Prediction failed for {tomorrow}: {e}", exc_info=True)
+            logger.error(f"Prediction failed for {next_draw_date}: {e}", exc_info=True)
             prediction = None
+            
+    # แยกและประมวลผลข้อมูลสำหรับการแสดงผลพรีเมียม
+    predicted_twos = []
+    predicted_threes = []
+    vote_breakdown = []
+    key_digit = "N/A"
+    secondary_digit = "N/A"
+    
+    if prediction:
+        predicted_twos = [x.strip() for x in prediction.predicted_two.split(',')] if prediction.predicted_two else []
+        predicted_threes = [x.strip() for x in prediction.predicted_three.split(',')] if prediction.predicted_three else []
+        
+        try:
+            from lottery.services.predictor import predict_next
+            pred_data = predict_next(prediction.target_date)
+            vote_breakdown = pred_data.get('vote_breakdown', [])
+            key_digit = pred_data.get('key_digit', 'N/A')
+            secondary_digit = pred_data.get('secondary_digit', 'N/A')
+        except Exception as e:
+            logger.error(f"Could not calculate vote breakdown: {e}")
     
     # ประวัติย้อนหลัง 10 งวด
     recent_results = LotteryResult.objects.order_by('-draw_date')[:10]
@@ -58,14 +80,19 @@ def dashboard(request):
     context = {
         'latest': latest,
         'prediction': prediction,
+        'predicted_twos': predicted_twos,
+        'predicted_threes': predicted_threes,
+        'vote_breakdown': vote_breakdown,
+        'key_digit': key_digit,
+        'secondary_digit': secondary_digit,
         'recent_results': recent_results,
         'stats': stats,
         'hot_numbers': hot_numbers,
         'stat_analysis': stat_analysis,
         'today': today,
-        'tomorrow': tomorrow,
     }
     return render(request, 'lottery/dashboard.html', context)
+
 
 
 def history(request):
@@ -90,7 +117,9 @@ def fetch_now(request):
         if obj:
             # สร้าง prediction ใหม่หลังได้ข้อมูล
             try:
-                save_prediction(today + timedelta(days=1))
+                from lottery.services.utils import get_next_draw_date
+                next_draw_date = get_next_draw_date(timezone.localtime())
+                save_prediction(next_draw_date)
             except Exception as e:
                 print(f"❌ [Fetch Prediction Error]: {e}")
                 logger.error(f"Fetch prediction failed: {e}", exc_info=True)
@@ -104,13 +133,14 @@ def fetch_now(request):
     return JsonResponse({'status': 'error', 'message': 'POST only'})
 
 
+
 def refresh_prediction(request):
     """AJAX/POST: สร้าง prediction ใหม่"""
     if request.method == 'POST':
         try:
-            today = timezone.localdate()
-            tomorrow = today + timedelta(days=1)
-            pred = save_prediction(tomorrow)
+            from lottery.services.utils import get_next_draw_date
+            next_draw_date = get_next_draw_date(timezone.localtime())
+            pred = save_prediction(next_draw_date)
             
             if not pred:
                 return JsonResponse({'status': 'error', 'message': 'Prediction returned None'})
@@ -127,6 +157,7 @@ def refresh_prediction(request):
             logger.error(f"Refresh prediction failed: {e}", exc_info=True)
             return JsonResponse({'status': 'error', 'message': str(e)})
     return JsonResponse({'status': 'error', 'message': 'POST only'})
+
 
 
 def _calc_hot_numbers(num_draws=20) -> list:

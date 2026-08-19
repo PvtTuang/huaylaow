@@ -11,19 +11,21 @@ _scheduler = None
 
 
 def fetch_daily():
-    """Job: ดึงข้อมูลหวยวันนี้และทำนายงวดพรุ่งนี้"""
+    """Job: ดึงข้อมูลหวยวันนี้และทำนายงวดถัดไป"""
     try:
-        from datetime import date, timedelta
+        from django.utils import timezone
         from lottery.services.fetcher import fetch_and_save
         from lottery.services.predictor import save_prediction
+        from lottery.services.utils import get_next_draw_date
 
-        today = date.today()
+        today = timezone.localdate()
         obj, msg = fetch_and_save(today)
         logger.info(f"[Scheduler] fetch_daily: {msg}")
 
         if obj:
-            pred = save_prediction(today + timedelta(days=1))
-            logger.info(f"[Scheduler] prediction saved: {pred.predicted_first}")
+            next_date = get_next_draw_date()
+            pred = save_prediction(next_date)
+            logger.info(f"[Scheduler] prediction saved for {next_date}: {pred.predicted_first}")
     except Exception as e:
         logger.error(f"[Scheduler] error: {e}")
 
