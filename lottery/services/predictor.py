@@ -430,6 +430,9 @@ def save_prediction(target_date: date = None) -> 'Prediction':
         predicted_three=result['predicted_three'],
         confidence=result['confidence'],
         model_used=result.get('model_used', 'ensemble'),
+        key_digit=result.get('key_digit', 'N/A'),
+        secondary_digit=result.get('secondary_digit', 'N/A'),
+        vote_breakdown=result.get('vote_breakdown', None),
         actual_result=actual,
     )
 

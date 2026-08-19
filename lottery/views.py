@@ -22,13 +22,7 @@ def dashboard(request):
     
     latest = LotteryResult.objects.first()
     
-    # ถ้ายังไม่มีผลหวยของวันนี้ในระบบ (เช่น กรณีผู้ใช้เปิดหน้าเว็บหลัง 20:30 น.) ให้ลองดึงอัตโนมัติทันที
-    if not latest or latest.draw_date < today:
-        try:
-            fetch_and_save(today)
-            latest = LotteryResult.objects.first()
-        except Exception as e:
-            logger.error(f"Auto-fetch failed on dashboard: {e}")
+    # ถ้ายังไม่มีผลหวยของวันนี้ในระบบ จะอาศัย background scheduler หรือให้ผู้ใช้กดปุ่มดึงข้อมูลล่าสุดด้วยตัวเองแบบ AJAX (เพื่อแก้ปัญหาเว็บโหลดช้า)
     
     # ค้นหา Prediction งวดถัดไป
     from lottery.services.utils import get_next_draw_date
@@ -56,14 +50,10 @@ def dashboard(request):
         predicted_twos = [x.strip() for x in prediction.predicted_two.split(',')] if prediction.predicted_two else []
         predicted_threes = [x.strip() for x in prediction.predicted_three.split(',')] if prediction.predicted_three else []
         
-        try:
-            from lottery.services.predictor import predict_next
-            pred_data = predict_next(prediction.target_date)
-            vote_breakdown = pred_data.get('vote_breakdown', [])
-            key_digit = pred_data.get('key_digit', 'N/A')
-            secondary_digit = pred_data.get('secondary_digit', 'N/A')
-        except Exception as e:
-            logger.error(f"Could not calculate vote breakdown: {e}")
+        # ดึงจาก Database โดยตรง เพื่อไม่ให้รันโมเดล ML ซ้ำในทุก HTTP request
+        vote_breakdown = prediction.vote_breakdown or []
+        key_digit = prediction.key_digit or "N/A"
+        secondary_digit = prediction.secondary_digit or "N/A"
     
     # ประวัติย้อนหลัง 10 งวด
     recent_results = LotteryResult.objects.order_by('-draw_date')[:10]

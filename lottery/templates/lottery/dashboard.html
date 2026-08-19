@@ -394,8 +394,9 @@
 
 {% block extra_js %}
 <script>
-    async function fetchData() {
-        const btn = document.getElementById('btnFetch');
+    async function fetchData(btn) {
+        if (!btn) btn = document.getElementById('btnFetch') || { disabled: false, innerHTML: '' };
+        const originalHtml = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> กำลังดึงข้อมูล...';
 
@@ -415,12 +416,13 @@
             showToast('เกิดข้อผิดพลาด: ' + e.message, 'error');
         } finally {
             btn.disabled = false;
-            btn.innerHTML = '<span>🔄</span> ดึงข้อมูลล่าสุด';
+            btn.innerHTML = originalHtml;
         }
     }
 
-    async function refreshPredict() {
-        const btn = document.getElementById('btnPredict');
+    async function refreshPredict(btn) {
+        if (!btn) btn = document.getElementById('btnPredict') || { disabled: false, innerHTML: '' };
+        const originalHtml = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> กำลังคำนวณ...';
 
@@ -440,7 +442,7 @@
             showToast('เกิดข้อผิดพลาด: ' + e.message, 'error');
         } finally {
             btn.disabled = false;
-            btn.innerHTML = '<span>🔮</span> คำนวณใหม่';
+            btn.innerHTML = originalHtml;
         }
     }
 </script>

@@ -57,6 +57,9 @@ class Prediction(models.Model):
     predicted_three = models.CharField(max_length=10, blank=True, verbose_name="ทำนาย 3 ตัวท้าย")
     confidence = models.FloatField(default=0.0, verbose_name="ความมั่นใจ (%)")
     model_used = models.CharField(max_length=50, default="ensemble", verbose_name="โมเดลที่ใช้")
+    key_digit = models.CharField(max_length=5, default="N/A", verbose_name="เลขเด่นหลัก")
+    secondary_digit = models.CharField(max_length=5, default="N/A", verbose_name="เลขเด่นรอง")
+    vote_breakdown = models.JSONField(null=True, blank=True, verbose_name="รายละเอียดคะแนนโหวต")
     
     # เปรียบเทียบกับผลจริง
     actual_result = models.ForeignKey(
