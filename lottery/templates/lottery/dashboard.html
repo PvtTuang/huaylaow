@@ -161,7 +161,9 @@
 
     <!-- ผลล่าสุด -->
     <div class="card">
-        <div class="card-title">🏆 ผลรางวัลล่าสุด</div>
+        <div style="margin-bottom:1rem;">
+            <div class="card-title" style="margin-bottom:0;">🏆 ผลรางวัลล่าสุด</div>
+        </div>
         {% if latest %}
             <div class="badge badge-light" style="margin-bottom: 1rem; display: inline-flex; align-items: center; gap: 0.5rem;">📅 {{ latest.draw_date|date:"d M Y" }}</div>
             <div>
@@ -174,14 +176,22 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="two-three-row">
+            <div class="two-three-row" style="grid-template-columns: repeat(2,1fr);">
                 <div class="mini-result">
-                    <div class="label">2 ตัวท้าย</div>
+                    <div class="label">2 ตัวบน</div>
+                    <div class="number">{{ latest.last_two_top|default:"--" }}</div>
+                </div>
+                <div class="mini-result">
+                    <div class="label">2 ตัวล่าง</div>
                     <div class="number">{{ latest.last_two|default:"--" }}</div>
                 </div>
                 <div class="mini-result">
                     <div class="label">3 ตัวท้าย</div>
                     <div class="number">{{ latest.last_three|default:"---" }}</div>
+                </div>
+                <div class="mini-result">
+                    <div class="label">4 ตัวท้าย</div>
+                    <div class="number">{{ latest.last_four|default:"----" }}</div>
                 </div>
             </div>
         {% else %}
@@ -195,7 +205,9 @@
 
     <!-- Prediction -->
     <div class="card">
-        <div class="card-title">ทำนายงวดถัดไป</div>
+        <div style="margin-bottom:1rem;">
+            <div class="card-title" style="margin-bottom:0;">ทำนายงวดถัดไป</div>
+        </div>
         {% if prediction %}
             <div class="badge badge-red" style="margin-bottom: 1.25rem; display: inline-flex; align-items: center; gap: 0.5rem;">
                 งวด {{ prediction.target_date|date:"d M Y" }}
@@ -225,25 +237,45 @@
                 </div>
             </div>
 
-            <!-- ชุดแนะนำ -->
-            <div class="two-three-row" style="margin-top: 1rem; margin-bottom: 1rem;">
+            <!-- ชุดแนะนำ 2x2 grid -->
+            <div class="two-three-row" style="grid-template-columns: repeat(2,1fr); margin-top: 1rem; margin-bottom: 1rem;">
                 <div class="mini-result predict" style="padding: 0.75rem;">
-                    <div class="label">ชุด 2 ตัวท้ายแนะนำ</div>
-                    <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem;">
-                        {% for num in predicted_twos %}
-                            <span class="badge badge-red" style="font-size: 1rem; padding: 0.35rem 0.7rem; font-weight: 700;">{{ num }}</span>
+                    <div class="label">ชุด 2 ตัวบน</div>
+                    <div style="display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem;">
+                        {% for num in predicted_twos_top %}
+                            <span class="badge badge-red" style="font-size: 0.95rem; padding: 0.3rem 0.6rem; font-weight: 700; background-color: rgba(167,139,250,0.12); color: #a78bfa; border-color: rgba(167,139,250,0.25);">{{ num }}</span>
                         {% empty %}
                             <span style="color:var(--text-muted);">--</span>
                         {% endfor %}
                     </div>
                 </div>
                 <div class="mini-result predict" style="padding: 0.75rem;">
-                    <div class="label">ชุด 3 ตัวท้ายแนะนำ</div>
-                    <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem;">
+                    <div class="label">ชุด 2 ตัวล่าง</div>
+                    <div style="display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem;">
+                        {% for num in predicted_twos %}
+                            <span class="badge badge-red" style="font-size: 0.95rem; padding: 0.3rem 0.6rem; font-weight: 700;">{{ num }}</span>
+                        {% empty %}
+                            <span style="color:var(--text-muted);">--</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="mini-result predict" style="padding: 0.75rem;">
+                    <div class="label">ชุด 3 ตัวท้าย</div>
+                    <div style="display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem;">
                         {% for num in predicted_threes %}
-                            <span class="badge badge-red" style="font-size: 1rem; padding: 0.35rem 0.7rem; font-weight: 700; background-color: rgba(251, 191, 36, 0.1); color: var(--warning); border-color: rgba(251, 191, 36, 0.2);">{{ num }}</span>
+                            <span class="badge badge-red" style="font-size: 0.95rem; padding: 0.3rem 0.6rem; font-weight: 700; background-color: rgba(251,191,36,0.1); color: var(--warning); border-color: rgba(251,191,36,0.2);">{{ num }}</span>
                         {% empty %}
                             <span style="color:var(--text-muted);">---</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="mini-result predict" style="padding: 0.75rem;">
+                    <div class="label">ชุด 4 ตัวท้าย</div>
+                    <div style="display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem;">
+                        {% for num in predicted_fours %}
+                            <span class="badge badge-red" style="font-size: 0.95rem; padding: 0.3rem 0.6rem; font-weight: 700; background-color: rgba(52,211,153,0.1); color: var(--success); border-color: rgba(52,211,153,0.2);">{{ num }}</span>
+                        {% empty %}
+                            <span style="color:var(--text-muted);">----</span>
                         {% endfor %}
                     </div>
                 </div>

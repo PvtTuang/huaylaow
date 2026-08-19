@@ -55,7 +55,9 @@ def parse_lottery_numbers(six_digits: str) -> dict:
     return {
         'first_prize': six_digits,
         'two_digit': six_digits[-2:],
+        'two_digit_top': six_digits[2:4] if len(six_digits) >= 4 else '',
         'three_digit': six_digits[-3:],
+        'four_digit': six_digits[-4:] if len(six_digits) >= 4 else '',
         'raw_data': f'Scraped from MThai: {six_digits}'
     }
 
@@ -87,7 +89,9 @@ def fetch_and_save(target_date: date = None):
                     draw_date=d,
                     first_prize=parsed['first_prize'],
                     two_digit=parsed['two_digit'],
+                    two_digit_top=parsed['two_digit_top'],
                     three_digit=parsed['three_digit'],
+                    four_digit=parsed['four_digit'],
                     raw_data=parsed['raw_data']
                 )
                 _evaluate_predictions(obj)
@@ -107,7 +111,9 @@ def fetch_and_save(target_date: date = None):
         defaults={
             'first_prize': parsed['first_prize'],
             'two_digit': parsed['two_digit'],
+            'two_digit_top': parsed['two_digit_top'],
             'three_digit': parsed['three_digit'],
+            'four_digit': parsed['four_digit'],
             'raw_data': parsed['raw_data'],
         }
     )
@@ -150,7 +156,9 @@ def fetch_history(days=30):
                 draw_date=d,
                 first_prize=parsed['first_prize'],
                 two_digit=parsed['two_digit'],
+                two_digit_top=parsed['two_digit_top'],
                 three_digit=parsed['three_digit'],
+                four_digit=parsed['four_digit'],
                 raw_data=parsed['raw_data']
             )
             _evaluate_predictions(obj)

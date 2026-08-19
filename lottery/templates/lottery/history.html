@@ -21,7 +21,7 @@
 
     .stats-banner {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(3, 1fr);
         gap: 1rem;
         margin-bottom: 1.5rem;
     }
@@ -88,7 +88,7 @@
     }
 
     @media (max-width: 768px) {
-        .stats-banner { grid-template-columns: repeat(2, 1fr); }
+        .stats-banner { grid-template-columns: repeat(3, 1fr); }
     }
 </style>
 {% endblock %}
@@ -112,10 +112,18 @@
     <div class="stat-card">
         <div class="num" style="color: inherit;">
             <span style="background:linear-gradient(135deg,var(--success),#6ee7b7); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
+                {{ stats.acc_two_top }}%
+            </span>
+        </div>
+        <div class="label">ถูก 2 ตัวบน</div>
+    </div>
+    <div class="stat-card">
+        <div class="num" style="color: inherit;">
+            <span style="background:linear-gradient(135deg,var(--success),#6ee7b7); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
                 {{ stats.acc_two }}%
             </span>
         </div>
-        <div class="label">ถูก 2 ตัวท้าย</div>
+        <div class="label">ถูก 2 ตัวล่าง</div>
     </div>
     <div class="stat-card">
         <div class="num" style="color: inherit;">
@@ -124,6 +132,14 @@
             </span>
         </div>
         <div class="label">ถูก 3 ตัวท้าย</div>
+    </div>
+    <div class="stat-card">
+        <div class="num" style="color: inherit;">
+            <span style="background:linear-gradient(135deg,#34d399,#a7f3d0); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
+                {{ stats.acc_four }}%
+            </span>
+        </div>
+        <div class="label">ถูก 4 ตัวท้าย</div>
     </div>
 </div>
 
@@ -137,12 +153,16 @@
                 <tr>
                     <th>งวดที่ทำนาย</th>
                     <th>เลขทำนาย</th>
-                    <th>2 ตัวท้าย</th>
+                    <th>2 ตัวบน</th>
+                    <th>2 ตัวล่าง</th>
                     <th>3 ตัวท้าย</th>
+                    <th>4 ตัวท้าย</th>
                     <th>Confidence</th>
                     <th>ผลจริง</th>
-                    <th>ถูก 2 ตัว</th>
+                    <th>ถูก 2 บน</th>
+                    <th>ถูก 2 ล่าง</th>
                     <th>ถูก 3 ตัว</th>
+                    <th>ถูก 4 ตัว</th>
                 </tr>
             </thead>
             <tbody>
@@ -150,8 +170,10 @@
                 <tr>
                     <td><span class="badge badge-purple">{{ p.target_date|date:"d/m/Y" }}</span></td>
                     <td class="number-pred">{{ p.predicted_first }}</td>
+                    <td style="color:#a78bfa; font-weight:700;">{{ p.predicted_two_top }}</td>
                     <td style="color:#a78bfa; font-weight:700;">{{ p.predicted_two }}</td>
                     <td style="color:#a78bfa; font-weight:700;">{{ p.predicted_three }}</td>
+                    <td style="color:#a78bfa; font-weight:700;">{{ p.predicted_four }}</td>
                     <td>
                         <div style="display:flex; align-items:center; gap:0.5rem;">
                             <div class="progress" style="width:60px; margin:0;">
@@ -168,6 +190,15 @@
                         {% endif %}
                     </td>
                     <td>
+                        {% if p.is_correct_two_top is None %}
+                            <span class="correct-pending">-</span>
+                        {% elif p.is_correct_two_top %}
+                            <span class="correct-yes">ถูก</span>
+                        {% else %}
+                            <span class="correct-no">ผิด</span>
+                        {% endif %}
+                    </td>
+                    <td>
                         {% if p.is_correct_two is None %}
                             <span class="correct-pending">-</span>
                         {% elif p.is_correct_two %}
@@ -180,6 +211,15 @@
                         {% if p.is_correct_three is None %}
                             <span class="correct-pending">-</span>
                         {% elif p.is_correct_three %}
+                            <span class="correct-yes">ถูก</span>
+                        {% else %}
+                            <span class="correct-no">ผิด</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.is_correct_four is None %}
+                            <span class="correct-pending">-</span>
+                        {% elif p.is_correct_four %}
                             <span class="correct-yes">ถูก</span>
                         {% else %}
                             <span class="correct-no">ผิด</span>
@@ -207,8 +247,10 @@
                 <tr>
                     <th>วันที่</th>
                     <th>รางวัลที่ 1</th>
-                    <th>2 ตัวท้าย</th>
+                    <th>2 ตัวบน</th>
+                    <th>2 ตัวล่าง</th>
                     <th>3 ตัวท้าย</th>
+                    <th>4 ตัวท้าย</th>
                     <th>บันทึกเมื่อ</th>
                 </tr>
             </thead>
@@ -217,8 +259,10 @@
                 <tr>
                     <td><span class="badge badge-gold">{{ r.draw_date|date:"d/m/Y" }}</span></td>
                     <td class="number-big">{{ r.first_prize }}</td>
+                    <td style="font-weight:600;">{{ r.last_two_top }}</td>
                     <td style="font-weight:600;">{{ r.last_two }}</td>
                     <td style="font-weight:600;">{{ r.last_three }}</td>
+                    <td style="font-weight:600;">{{ r.last_four }}</td>
                     <td style="font-size:0.8rem; color:var(--text-muted);">{{ r.created_at|date:"d/m/Y H:i" }}</td>
                 </tr>
                 {% endfor %}

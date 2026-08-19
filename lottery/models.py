@@ -11,7 +11,9 @@ class LotteryResult(models.Model):
     
     # เลขท้าย 2 ตัว / 3 ตัว (หากมี)
     two_digit = models.CharField(max_length=10, blank=True, verbose_name="2 ตัวท้าย")
+    two_digit_top = models.CharField(max_length=10, blank=True, verbose_name="2 ตัวบน")
     three_digit = models.CharField(max_length=10, blank=True, verbose_name="3 ตัวท้าย")
+    four_digit = models.CharField(max_length=10, blank=True, verbose_name="4 ตัวท้าย")
     
     # ข้อมูลดิบจาก API
     raw_data = models.TextField(blank=True, verbose_name="ข้อมูลดิบ")
@@ -47,6 +49,22 @@ class LotteryResult(models.Model):
         if len(self.first_prize) >= 3:
             return self.first_prize[-3:]
         return ""
+    
+    @property
+    def last_four(self):
+        if self.four_digit:
+            return self.four_digit
+        if len(self.first_prize) >= 4:
+            return self.first_prize[-4:]
+        return ""
+    
+    @property
+    def last_two_top(self):
+        if self.two_digit_top:
+            return self.two_digit_top
+        if len(self.first_prize) >= 4:
+            return self.first_prize[2:4]
+        return ""
 
 
 class Prediction(models.Model):
@@ -54,7 +72,9 @@ class Prediction(models.Model):
     target_date = models.DateField(verbose_name="งวดที่ทำนาย")
     predicted_first = models.CharField(max_length=20, verbose_name="ทำนายรางวัลที่ 1")
     predicted_two = models.CharField(max_length=10, blank=True, verbose_name="ทำนาย 2 ตัวท้าย")
+    predicted_two_top = models.CharField(max_length=100, blank=True, verbose_name="ทำนาย 2 ตัวบน")
     predicted_three = models.CharField(max_length=10, blank=True, verbose_name="ทำนาย 3 ตัวท้าย")
+    predicted_four = models.CharField(max_length=100, blank=True, verbose_name="ทำนาย 4 ตัวท้าย")
     confidence = models.FloatField(default=0.0, verbose_name="ความมั่นใจ (%)")
     model_used = models.CharField(max_length=50, default="ensemble", verbose_name="โมเดลที่ใช้")
     key_digit = models.CharField(max_length=5, default="N/A", verbose_name="เลขเด่นหลัก")
@@ -69,7 +89,9 @@ class Prediction(models.Model):
         verbose_name="ผลจริง"
     )
     is_correct_two = models.BooleanField(null=True, blank=True, verbose_name="ถูก 2 ตัวท้าย")
+    is_correct_two_top = models.BooleanField(null=True, blank=True, verbose_name="ถูก 2 ตัวบน")
     is_correct_three = models.BooleanField(null=True, blank=True, verbose_name="ถูก 3 ตัวท้าย")
+    is_correct_four = models.BooleanField(null=True, blank=True, verbose_name="ถูก 4 ตัวท้าย")
     is_correct_first = models.BooleanField(null=True, blank=True, verbose_name="ถูกรางวัลที่ 1")
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -89,12 +111,16 @@ class Prediction(models.Model):
         real = self.actual_result
         
         twos = [t.strip() for t in self.predicted_two.replace('/', ',').split(',') if t.strip()]
+        twos_top = [t.strip() for t in self.predicted_two_top.replace('/', ',').split(',') if t.strip()]
         threes = [t.strip() for t in self.predicted_three.replace('/', ',').split(',') if t.strip()]
+        fours = [t.strip() for t in self.predicted_four.replace('/', ',').split(',') if t.strip()]
         firsts = [f.strip() for f in self.predicted_first.replace('/', ',').split(',') if f.strip()]
 
         self.is_correct_first = (real.first_prize in firsts) if firsts else False
         self.is_correct_two = (real.last_two in twos) if twos else False
+        self.is_correct_two_top = (real.last_two_top in twos_top) if twos_top else False
         self.is_correct_three = (real.last_three in threes) if threes else False
+        self.is_correct_four = (real.last_four in fours) if fours else False
         self.save()
 
 

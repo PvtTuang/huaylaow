@@ -235,15 +235,26 @@ def rf_predict(history: list, prize_len=6, target_date: date = None, rng: random
 
 # ---------- Ensemble Voting ----------
 
-def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> tuple:
+def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> dict:
     """
     รวม 4 วิธีโดย Soft Voting (weighted)
     - แต่ละวิธีได้ vote ต่างกัน
     - มี noise เพิ่มความหลากหลายตามวันที่
-    Returns: (predicted_str, confidence_float)
+    Returns dict: predicted_first, two_digit_pairs, two_digit_top_pairs, three_digit_sets,
+                  four_digit_sets, confidence, key_digit, secondary_digit, vote_breakdown
     """
     if not history:
-        return "000000", 0.0
+        return {
+            'predicted_first': "000000",
+            'two_digit_pairs': ["00", "00", "00", "00"],
+            'two_digit_top_pairs': ["00", "00", "00", "00"],
+            'three_digit_sets': ["000", "000", "000"],
+            'four_digit_sets': ["0000", "0000", "0000"],
+            'confidence': 0.0,
+            'key_digit': "0",
+            'secondary_digit': "0",
+            'vote_breakdown': []
+        }
 
     seed = _date_seed(target_date) if target_date else random.randint(0, 999999)
     rng = random.Random(seed)
@@ -268,6 +279,14 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> tu
 
     final = []
     total_score = 0.0
+    
+    # สำหรับเก็บข้อมูลโหวตของแต่ละตำแหน่ง
+    vote_breakdown = []
+    # สำหรับสะสมคะแนนโหวตทั้งหมดเพื่อหาตัวเลขเด่นภาพรวม
+    overall_scores = defaultdict(float)
+    
+    # สำหรับเก็บตัวเลือกอันดับท็อปในแต่ละตำแหน่ง
+    top_digits_per_pos = []
 
     for pos in range(prize_len):
         # สะสมคะแนนในแต่ละตำแหน่งให้แต่ละ digit
@@ -276,6 +295,24 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> tu
             if len(pred) > pos:
                 d = pred[pos]
                 digit_scores[d] += method_weights[method]
+
+        # คำนวณเปอร์เซ็นต์โหวตของแต่ละหลัก
+        total_pos_score = sum(digit_scores.values()) if digit_scores else 1.0
+        sorted_pos = []
+        for d in range(10):
+            d_str = str(d)
+            score = digit_scores.get(d_str, 0.0)
+            percentage = round((score / total_pos_score) * 100, 1)
+            sorted_pos.append((d_str, percentage))
+            # สะสมคะแนนภาพรวม
+            overall_scores[d_str] += score
+            
+        sorted_pos.sort(key=lambda x: x[1], reverse=True)
+        vote_breakdown.append(sorted_pos)
+        
+        # เก็บอันดับหลักร้อย หลักสิบ หลักหน่วย เพื่อนำไปจับคู่แนะนำ
+        top_digits = [item[0] for item in sorted_pos]
+        top_digits_per_pos.append(top_digits)
 
         # เลือก digit ที่คะแนนสูงสุด
         if digit_scores:
@@ -294,8 +331,60 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> tu
     # Scale ให้อยู่ระหว่าง 65% - 93%
     confidence = 65.0 + avg_agreement * 28.0
     confidence = min(93.0, max(65.0, confidence))
+    
+    # หาเลขเด่น / เลขรอง ภาพรวม (2 อันดับแรกจากคะแนนสะสมรวม)
+    sorted_overall = sorted(overall_scores.items(), key=lambda x: x[1], reverse=True)
+    key_digit = sorted_overall[0][0] if len(sorted_overall) > 0 else "0"
+    secondary_digit = sorted_overall[1][0] if len(sorted_overall) > 1 else "1"
+    
+    # คำนวณชุดเลขท้าย 2 ตัวล่างแนะนำ 4 ชุด (จากหลักสิบและหลักหน่วย)
+    # prize_len=6: หลักสิบ=index 4, หลักหน่วย=index 5
+    tens_top = top_digits_per_pos[prize_len - 2][:2] if prize_len >= 2 else ["0", "1"]
+    units_top = top_digits_per_pos[prize_len - 1][:2] if prize_len >= 1 else ["0", "1"]
+    
+    two_digit_pairs = []
+    for t in tens_top:
+        for u in units_top:
+            two_digit_pairs.append(f"{t}{u}")
+            
+    # คำนวณชุดเลขท้าย 3 ตัวแนะนำ 3 ชุด (จากหลักร้อย หลักสิบ หลักหน่วย)
+    hunds_top = top_digits_per_pos[prize_len - 3][:2] if prize_len >= 3 else ["0", "1"]
+    
+    three_digit_sets = [
+        f"{hunds_top[0]}{tens_top[0]}{units_top[0]}",
+        f"{hunds_top[0]}{tens_top[1]}{units_top[1]}" if len(tens_top) > 1 and len(units_top) > 1 else f"{hunds_top[0]}12",
+        f"{hunds_top[1]}{tens_top[0]}{units_top[1]}" if len(hunds_top) > 1 and len(units_top) > 1 else f"3{tens_top[0]}4",
+    ]
 
-    return ''.join(final), round(confidence, 1)
+    # คำนวณชุด 2 ตัวบน (positions index 2,3 ของ 6 หลัก)
+    # หลักที่ 3 = prize_len-4, หลักที่ 4 = prize_len-3
+    tens_top_top = top_digits_per_pos[prize_len - 4][:2] if prize_len >= 4 else ["0", "1"]
+    units_top_top = top_digits_per_pos[prize_len - 3][:2] if prize_len >= 3 else ["0", "1"]
+    two_digit_top_pairs = []
+    for t in tens_top_top:
+        for u in units_top_top:
+            two_digit_top_pairs.append(f"{t}{u}")
+
+    # คำนวณชุด 4 ตัวท้าย (last 4 positions)
+    hunds4_top = top_digits_per_pos[prize_len - 4][:2] if prize_len >= 4 else ["0", "1"]
+    thous4_top = top_digits_per_pos[prize_len - 3][:2] if prize_len >= 3 else ["0", "1"]
+    four_digit_sets = [
+        f"{hunds4_top[0]}{hunds_top[0]}{tens_top[0]}{units_top[0]}",
+        f"{hunds4_top[0]}{hunds_top[0]}{tens_top[1]}{units_top[1]}" if len(tens_top) > 1 and len(units_top) > 1 else f"{hunds4_top[0]}{hunds_top[0]}12",
+        f"{hunds4_top[1]}{hunds_top[1]}{tens_top[0]}{units_top[1]}" if len(hunds4_top) > 1 and len(hunds_top) > 1 and len(units_top) > 1 else f"3{hunds_top[0]}{tens_top[0]}4",
+    ]
+
+    return {
+        'predicted_first': ''.join(final),
+        'two_digit_pairs': two_digit_pairs,
+        'two_digit_top_pairs': two_digit_top_pairs,
+        'three_digit_sets': three_digit_sets,
+        'four_digit_sets': four_digit_sets,
+        'confidence': round(confidence, 1),
+        'key_digit': key_digit,
+        'secondary_digit': secondary_digit,
+        'vote_breakdown': vote_breakdown
+    }
 
 
 # ---------- Public API ----------
@@ -306,7 +395,8 @@ def predict_next(target_date: date = None) -> dict:
     Returns dict: predicted_first, predicted_two, predicted_three, confidence
     """
     if target_date is None:
-        target_date = date.today() + timedelta(days=1)
+        from lottery.services.utils import get_next_draw_date
+        target_date = get_next_draw_date()
 
     history = _get_history(limit=60)
 
@@ -327,15 +417,20 @@ def predict_next(target_date: date = None) -> dict:
             prize_len = len(sample_digits)
 
     # Dynamic Ensemble: แต่ละวันได้เลขต่างกัน ไม่ซ้ำ
-    predicted_full, confidence = ensemble_predict(history, prize_len, target_date)
+    res = ensemble_predict(history, prize_len, target_date)
 
     return {
-        'predicted_first': predicted_full,
-        'predicted_two':   predicted_full[-2:] if len(predicted_full) >= 2 else '00',
-        'predicted_three': predicted_full[-3:] if len(predicted_full) >= 3 else '000',
-        'confidence': round(confidence, 1),
+        'predicted_first':   res['predicted_first'],
+        'predicted_two':     ', '.join(res['two_digit_pairs']),
+        'predicted_two_top': ', '.join(res['two_digit_top_pairs']),
+        'predicted_three':   ', '.join(res['three_digit_sets']),
+        'predicted_four':    ', '.join(res['four_digit_sets']),
+        'confidence': res['confidence'],
         'model_used': 'ensemble',
         'based_on': len(history),
+        'key_digit': res['key_digit'],
+        'secondary_digit': res['secondary_digit'],
+        'vote_breakdown': res['vote_breakdown']
     }
 
 
@@ -344,7 +439,8 @@ def save_prediction(target_date: date = None) -> 'Prediction':
     from lottery.models import Prediction, LotteryResult
 
     if target_date is None:
-        target_date = date.today() + timedelta(days=1)
+        from lottery.services.utils import get_next_draw_date
+        target_date = get_next_draw_date()
 
     # ลบ prediction เก่าทั้งหมดของวันนั้นเพื่อป้องกันการซ้ำซ้อน
     Prediction.objects.filter(target_date=target_date).delete()
@@ -357,9 +453,14 @@ def save_prediction(target_date: date = None) -> 'Prediction':
         target_date=target_date,
         predicted_first=result['predicted_first'],
         predicted_two=result['predicted_two'],
+        predicted_two_top=result.get('predicted_two_top', ''),
         predicted_three=result['predicted_three'],
+        predicted_four=result.get('predicted_four', ''),
         confidence=result['confidence'],
         model_used=result.get('model_used', 'ensemble'),
+        key_digit=result.get('key_digit', 'N/A'),
+        secondary_digit=result.get('secondary_digit', 'N/A'),
+        vote_breakdown=result.get('vote_breakdown', None),
         actual_result=actual,
     )
 
@@ -378,20 +479,27 @@ def get_accuracy_stats() -> dict:
     total = evaluated.count()
 
     if total == 0:
-        return {'total': 0, 'correct_two': 0, 'correct_three': 0, 'correct_first': 0,
-                'acc_two': 0, 'acc_three': 0, 'acc_first': 0}
+        return {'total': 0, 'correct_two': 0, 'correct_two_top': 0, 'correct_three': 0,
+                'correct_four': 0, 'correct_first': 0,
+                'acc_two': 0, 'acc_two_top': 0, 'acc_three': 0, 'acc_four': 0, 'acc_first': 0}
 
     correct_two = evaluated.filter(is_correct_two=True).count()
+    correct_two_top = evaluated.filter(is_correct_two_top=True).count()
     correct_three = evaluated.filter(is_correct_three=True).count()
+    correct_four = evaluated.filter(is_correct_four=True).count()
     correct_first = evaluated.filter(is_correct_first=True).count()
 
     return {
         'total': total,
         'correct_two': correct_two,
+        'correct_two_top': correct_two_top,
         'correct_three': correct_three,
+        'correct_four': correct_four,
         'correct_first': correct_first,
         'acc_two': round(correct_two / total * 100, 1),
+        'acc_two_top': round(correct_two_top / total * 100, 1),
         'acc_three': round(correct_three / total * 100, 1),
+        'acc_four': round(correct_four / total * 100, 1),
         'acc_first': round(correct_first / total * 100, 1),
     }
 

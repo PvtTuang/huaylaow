@@ -14,11 +14,26 @@ import traceback
 logger = logging.getLogger(__name__)
 
 
+def _check_and_fetch_pending(today):
+    """ดึงข้อมูลเก็บตกถ้ามีงวดในอดีตที่ยังไม่ประกาศผล (จำกัดความถี่ในการดึงจากต้นทางเพื่อไม่ให้เว็บช้า)"""
+    try:
+        # หางวดที่ออกรางวัลแล้ว (target_date <= today) ที่ยังไม่มีผลจริง (actual_result__isnull=True)
+        pending = Prediction.objects.filter(target_date__lte=today, actual_result__isnull=True).order_by('target_date').first()
+        if pending:
+            last_log = FetchLog.objects.order_by('-fetched_at').first()
+            # จำกัดให้ดึงข้อมูลจากเว็บภายนอกไม่เกินหนึ่งครั้งต่อ 15 นาที เพื่อป้องกันปัญหาเว็บหน่วง
+            if not last_log or timezone.now() - last_log.fetched_at > timedelta(minutes=15):
+                fetch_and_save(pending.target_date)
+    except Exception as e:
+        logger.error(f"Auto-fetch pending failed: {e}")
+
+
 def dashboard(request):
     """หน้าหลัก - แสดงผลล่าสุด + prediction"""
     # ผลล่าสุด
     # ดึงวันที่ปัจจุบันตาม Timezone ที่ตั้งไว้ใน settings.py (Asia/Bangkok)
     today = timezone.localdate()
+    _check_and_fetch_pending(today)
     
     latest = LotteryResult.objects.first()
     
@@ -30,14 +45,17 @@ def dashboard(request):
     next_draw_date = get_next_draw_date(now_local)
     
     prediction = Prediction.objects.filter(target_date=next_draw_date).first()
-    if not prediction:
+    # ถ้ายังไม่มีผลการทำนาย หรือข้อมูลในระบบยังไม่ได้อัปเกรดเพื่อรองรับการเก็บฟิลด์ใหม่ (เช่น key_digit เป็น N/A หรือไม่มี vote_breakdown)
+    # ให้สั่งคำนวณใหม่และบันทึกลงฐานข้อมูลทันทีเพียงครั้งเดียว
+    if not prediction or prediction.key_digit == 'N/A' or prediction.vote_breakdown is None:
         try:
             prediction = save_prediction(next_draw_date)
         except Exception as e:
             print(f"[Dashboard Prediction Error]: {e}")
             traceback.print_exc()
             logger.error(f"Prediction failed for {next_draw_date}: {e}", exc_info=True)
-            prediction = None
+            if not prediction:
+                prediction = None
             
     # แยกและประมวลผลข้อมูลสำหรับการแสดงผลพรีเมียม
     predicted_twos = []
@@ -46,9 +64,13 @@ def dashboard(request):
     key_digit = "N/A"
     secondary_digit = "N/A"
     
+    predicted_twos_top = []
+    predicted_fours = []
     if prediction:
         predicted_twos = [x.strip() for x in prediction.predicted_two.split(',')] if prediction.predicted_two else []
+        predicted_twos_top = [x.strip() for x in prediction.predicted_two_top.split(',')] if prediction.predicted_two_top else []
         predicted_threes = [x.strip() for x in prediction.predicted_three.split(',')] if prediction.predicted_three else []
+        predicted_fours = [x.strip() for x in prediction.predicted_four.split(',')] if prediction.predicted_four else []
         
         # ดึงจาก Database โดยตรง เพื่อไม่ให้รันโมเดล ML ซ้ำในทุก HTTP request
         vote_breakdown = prediction.vote_breakdown or []
@@ -71,7 +93,9 @@ def dashboard(request):
         'latest': latest,
         'prediction': prediction,
         'predicted_twos': predicted_twos,
+        'predicted_twos_top': predicted_twos_top,
         'predicted_threes': predicted_threes,
+        'predicted_fours': predicted_fours,
         'vote_breakdown': vote_breakdown,
         'key_digit': key_digit,
         'secondary_digit': secondary_digit,
@@ -87,6 +111,9 @@ def dashboard(request):
 
 def history(request):
     """หน้าประวัติผลหวยทั้งหมด"""
+    today = timezone.localdate()
+    _check_and_fetch_pending(today)
+
     results = LotteryResult.objects.order_by('-draw_date')
     predictions = Prediction.objects.order_by('-target_date')[:30]
     stats = get_accuracy_stats()
