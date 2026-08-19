@@ -117,8 +117,10 @@ class Prediction(models.Model):
         firsts = [f.strip() for f in self.predicted_first.replace('/', ',').split(',') if f.strip()]
 
         self.is_correct_first = (real.first_prize in firsts) if firsts else False
-        self.is_correct_two = (real.last_two in twos) if twos else False
-        self.is_correct_two_top = (real.last_two_top in twos_top) if twos_top else False
+        # ตรวจสอบ 2 ตัวล่าง (two) และ 2 ตัวบน (two_top) โดยอิงจากลิสต์แนะนำ
+        all_predicted_twos = twos + twos_top
+        self.is_correct_two = (real.last_two in all_predicted_twos) if all_predicted_twos else False
+        self.is_correct_two_top = (real.last_two_top in all_predicted_twos) if all_predicted_twos else False
         self.is_correct_three = (real.last_three in threes) if threes else False
         self.is_correct_four = (real.last_four in fours) if fours else False
         self.save()

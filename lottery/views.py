@@ -64,13 +64,9 @@ def dashboard(request):
     key_digit = "N/A"
     secondary_digit = "N/A"
     
-    predicted_twos_top = []
-    predicted_fours = []
     if prediction:
         predicted_twos = [x.strip() for x in prediction.predicted_two.split(',')] if prediction.predicted_two else []
-        predicted_twos_top = [x.strip() for x in prediction.predicted_two_top.split(',')] if prediction.predicted_two_top else []
         predicted_threes = [x.strip() for x in prediction.predicted_three.split(',')] if prediction.predicted_three else []
-        predicted_fours = [x.strip() for x in prediction.predicted_four.split(',')] if prediction.predicted_four else []
         
         # ดึงจาก Database โดยตรง เพื่อไม่ให้รันโมเดล ML ซ้ำในทุก HTTP request
         vote_breakdown = prediction.vote_breakdown or []
@@ -93,9 +89,7 @@ def dashboard(request):
         'latest': latest,
         'prediction': prediction,
         'predicted_twos': predicted_twos,
-        'predicted_twos_top': predicted_twos_top,
         'predicted_threes': predicted_threes,
-        'predicted_fours': predicted_fours,
         'vote_breakdown': vote_breakdown,
         'key_digit': key_digit,
         'secondary_digit': secondary_digit,
