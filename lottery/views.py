@@ -181,3 +181,28 @@ def _calc_hot_numbers(num_draws=20) -> list:
             if c.isdigit():
                 counter[c] += 1
     return counter.most_common(5)
+
+
+def cron_job(request):
+    """Cron Endpoint (GET/POST): Auto-fetch results & update predictions for automated schedulers"""
+    try:
+        today = timezone.localdate()
+        obj, fetch_msg = fetch_and_save(today)
+        
+        from lottery.services.utils import get_next_draw_date
+        next_draw_date = get_next_draw_date(timezone.localtime())
+        pred = save_prediction(next_draw_date)
+        
+        return JsonResponse({
+            'status': 'success',
+            'message': fetch_msg,
+            'fetched_result': obj.first_prize if obj else None,
+            'next_draw_date': str(next_draw_date),
+            'predicted_first': pred.predicted_first if pred else None,
+            'predicted_two': pred.predicted_two if pred else None,
+            'predicted_three': pred.predicted_three if pred else None,
+            'confidence': pred.confidence if pred else None,
+        })
+    except Exception as e:
+        logger.error(f"Cron execution failed: {e}", exc_info=True)
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

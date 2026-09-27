@@ -6,4 +6,5 @@ urlpatterns = [
     path('history/', views.history, name='history'),
     path('api/fetch/', views.fetch_now, name='fetch_now'),
     path('api/predict/', views.refresh_prediction, name='refresh_prediction'),
+    path('api/cron/', views.cron_job, name='cron_job'),
 ]
