@@ -1,20 +1,20 @@
 """
-ML Prediction Engine สำหรับหวยลาวพัฒนา
-ใช้ Ensemble ของ 4 วิธี:
-1. Gap / Overdue Analysis (ตัวเลขที่ค้างนานในแต่ละตำแหน่ง)
-2. Markov Chain (pattern ต่อเนื่องระหว่างงวด)
-3. Position-aware Weighted Frequency (ให้น้ำหนักงวดใหม่มากกว่าเก่า)
-4. Random Forest (ถ้า sklearn ติดตั้งอยู่)
+ML Prediction Engine สำหรับหวยลาวพัฒนา (v3 - Lao-Optimized)
+ใช้ Ensemble ของ 5 วิธีที่ปรับแต่งสำหรับหวยลาวโดยเฉพาะ:
 
-สิ่งที่แก้จากเวอร์ชันเก่า:
-- เพิ่ม Noise (สุ่มเล็กน้อยในแต่ละงวด) เพื่อกระจายผล ไม่ให้ซ้ำกันทุกวัน
-- ไม่ใช้ random_state ตายตัว
-- วิเคราะห์ Gap (เลขที่หายไปนานควรมีโอกาสออก)
-- ให้ target_date มีผลกับผลลัพธ์
+1. Exponential Decay Frequency  — งวดล่าสุดมีน้ำหนักมากแบบ exp แทน 1/n
+2. Multi-Window Hot/Cold         — วิเคราะห์ 5, 10, 20 งวดแยก แล้วรวมคะแนน
+3. Gap + Frequency Combined      — เลขที่หายนาน AND ไม่ค่อยออกรวมกัน
+4. Hot-Streak Detection          — เลขที่ออกติดต่อกัน 2+ งวด ได้ bonus
+5. 2nd-Order Markov Chain        — ดู 2 งวดก่อนหน้าเพื่อ pattern ที่ละเอียดขึ้น
+
+Adaptive Ensemble:
+  — backtest ย้อนหลัง 10 งวดเพื่อหาว่า method ไหนแม่นกว่า แล้วชั่งน้ำหนักตาม
 """
 import logging
 import random
 import hashlib
+import math
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 
@@ -23,17 +23,19 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# ---------- helpers ----------
+# ──────────────────────────────────────────────
+#  Helpers
+# ──────────────────────────────────────────────
 
-def _get_history(limit=60):
-    """ดึงประวัติ N งวดล่าสุดจาก DB"""
+def _get_history(limit=80):
+    """ดึงประวัติ N งวดล่าสุดจาก DB (เพิ่มเป็น 80 งวดสำหรับ Markov 2nd-order)"""
     from lottery.models import LotteryResult
     qs = LotteryResult.objects.exclude(first_prize='').order_by('-draw_date')[:limit]
     return list(qs)
 
 
 def _extract_digits(lottery_result) -> list:
-    """แปลง first_prize -> list of int"""
+    """แปลง first_prize → list of int"""
     fp = lottery_result.first_prize
     return [int(c) for c in fp if c.isdigit()]
 
@@ -52,266 +54,399 @@ def _date_seed(target_date: date) -> int:
     return int(hashlib.md5(s.encode()).hexdigest(), 16) % (2**31)
 
 
-# ---------- Method 1: Weighted Frequency (งวดใหม่ = น้ำหนักมากกว่า) ----------
-
-def weighted_frequency_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
-    """
-    เลือกตัวเลขโดยให้น้ำหนักงวดที่ใหม่กว่ามากกว่างวดเก่า
-    ใช้ Laplace Smoothing (base weight 0.5) เพื่อให้ทุกเลข 0-9 มีโอกาสเสมอ
-    """
-    if not history:
-        return "000000"
-    if rng is None:
-        rng = random.Random()
-
-    n = len(history)
-    # เริ่มต้นทุกเลข 0-9 มี base weight = 0.5 (Laplace Smoothing)
-    position_weights = [{d: 0.5 for d in range(10)} for _ in range(prize_len)]
-
-    for rank, lr in enumerate(history):
-        weight = 1.0 / (rank + 1)  # งวดล่าสุด weight สูงสุด
-        digits = _pad_or_trim(_extract_digits(lr), prize_len)
-        for i, d in enumerate(digits):
-            position_weights[i][d] += weight
-
+def _make_scores(position_weights: list, prize_len: int, rng: random.Random) -> str:
+    """เลือก digit ที่ดีที่สุดจาก position_weights (dict ของ score ต่อ digit)"""
     predicted = []
     for i in range(prize_len):
         pw = position_weights[i]
         digits_list = list(range(10))
-        weights_list = [pw[d] for d in digits_list]
+        weights_list = [max(pw.get(d, 0.01), 0.01) for d in digits_list]
         chosen = rng.choices(digits_list, weights=weights_list, k=1)[0]
         predicted.append(str(chosen))
-
     return ''.join(predicted)
 
 
-# ---------- Method 2: Gap / Overdue Analysis ----------
+# ──────────────────────────────────────────────
+#  Method 1: Exponential Decay Frequency
+# ──────────────────────────────────────────────
 
-def gap_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+def exp_decay_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
     """
-    วิเคราะห์ว่าตัวเลขในแต่ละตำแหน่งหายไปนานแค่ไหน
-    ตัวเลขที่ไม่ออกมานานจะมีโอกาสสูงกว่า
-    ใช้ Laplace Smoothing เพื่อให้ทุกเลข 0-9 มีโอกาสเสมอ
+    ให้น้ำหนักงวดล่าสุดแบบ exponential: w = exp(-λ * rank)
+    λ = 0.15 → งวดก่อนนาน 10 งวดมีน้ำหนักเพียง ~22% ของงวดล่าสุด
+    ดีกว่า 1/(rank+1) เพราะ drop ชันกว่า = งวดใหม่สำคัญกว่ามาก
     """
     if not history:
-        return "000000"
+        return "0" * prize_len
+    if rng is None:
+        rng = random.Random()
+
+    LAMBDA = 0.15
+    # Laplace smoothing เล็กน้อย
+    position_weights = [{d: 0.3 for d in range(10)} for _ in range(prize_len)]
+
+    for rank, lr in enumerate(history):
+        w = math.exp(-LAMBDA * rank)
+        digits = _pad_or_trim(_extract_digits(lr), prize_len)
+        for i, d in enumerate(digits):
+            position_weights[i][d] += w
+
+    return _make_scores(position_weights, prize_len, rng)
+
+
+# ──────────────────────────────────────────────
+#  Method 2: Multi-Window Hot/Cold
+# ──────────────────────────────────────────────
+
+def multi_window_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+    """
+    วิเคราะห์ใน 3 กรอบเวลา: 5, 10, 20 งวด
+    - Hot window (5 งวด): เลขที่ออกบ่อยในช่วงสั้น → โอกาสออกต่อ (momentum)
+    - Mid window (10 งวด): ภาพรวมระยะกลาง
+    - Long window (20 งวด): ฐาน frequency ระยะยาว
+
+    รวมคะแนนด้วย weight: hot=0.5, mid=0.3, long=0.2
+    """
+    if not history:
+        return "0" * prize_len
+    if rng is None:
+        rng = random.Random()
+
+    windows = [
+        (min(5, len(history)),  0.50),   # hot window
+        (min(10, len(history)), 0.30),   # mid window
+        (min(20, len(history)), 0.20),   # long window
+    ]
+
+    position_weights = [{d: 0.1 for d in range(10)} for _ in range(prize_len)]
+
+    for win_size, win_weight in windows:
+        sub_history = history[:win_size]
+        # นับ frequency ใน window นี้
+        pos_count = [{d: 0 for d in range(10)} for _ in range(prize_len)]
+        for lr in sub_history:
+            digits = _pad_or_trim(_extract_digits(lr), prize_len)
+            for i, d in enumerate(digits):
+                pos_count[i][d] += 1
+
+        for i in range(prize_len):
+            total = max(sum(pos_count[i].values()), 1)
+            for d in range(10):
+                freq = pos_count[i][d] / total
+                position_weights[i][d] += win_weight * freq
+
+    return _make_scores(position_weights, prize_len, rng)
+
+
+# ──────────────────────────────────────────────
+#  Method 3: Gap + Frequency Combined
+# ──────────────────────────────────────────────
+
+def gap_freq_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+    """
+    รวม 2 สัญญาณ:
+      gap_score  = จำนวนงวดที่ไม่ออก (ยิ่งนาน ยิ่งสูง)
+      freq_score = ความถี่ใน 20 งวดล่าสุด (normalized)
+
+    combined = 0.6 * gap_norm + 0.4 * (1 - freq_norm)
+    → ชอบเลขที่ "หายนาน AND ออกน้อย" (ค้างยาว + cold)
+    ใช้ sqrt เพื่อลด extreme bias
+    """
+    if not history:
+        return "0" * prize_len
     if rng is None:
         rng = random.Random()
 
     n = len(history)
-    # หา last seen index (rank 0 = ล่าสุด)
-    last_seen = [dict() for _ in range(prize_len)]
+    WINDOW = min(20, n)
+    sub = history[:WINDOW]
+
+    # คำนวณ gap (งวดล่าสุดที่เห็นแต่ละ digit ในแต่ละ position)
+    last_seen = [{d: n + 10 for d in range(10)} for _ in range(prize_len)]
     for rank, lr in enumerate(history):
         digits = _pad_or_trim(_extract_digits(lr), prize_len)
         for i, d in enumerate(digits):
-            if d not in last_seen[i]:
+            if last_seen[i][d] == n + 10:   # ยังไม่เคยเห็น
                 last_seen[i][d] = rank
 
-    predicted = []
+    # คำนวณ frequency ใน window
+    pos_count = [{d: 0 for d in range(10)} for _ in range(prize_len)]
+    for lr in sub:
+        digits = _pad_or_trim(_extract_digits(lr), prize_len)
+        for i, d in enumerate(digits):
+            pos_count[i][d] += 1
+
+    position_weights = []
     for i in range(prize_len):
-        gap_scores = {}
+        gaps = [last_seen[i][d] for d in range(10)]
+        freqs = [pos_count[i][d] for d in range(10)]
+
+        max_gap = max(gaps) if max(gaps) > 0 else 1
+        max_freq = max(freqs) if max(freqs) > 0 else 1
+
+        pw = {}
         for d in range(10):
-            if d in last_seen[i]:
-                gap_scores[d] = last_seen[i][d] + 1  # ยิ่งห่างนาน ยิ่งคะแนนสูง
-            else:
-                gap_scores[d] = n + 10  # ไม่เคยออก = คะแนนสูงมาก
+            gap_norm = gaps[d] / max_gap
+            freq_norm = freqs[d] / max_freq
+            # combined: ชอบเลขที่ gap นาน + ออกน้อย
+            combined = 0.6 * gap_norm + 0.4 * (1.0 - freq_norm)
+            pw[d] = math.sqrt(max(combined, 0.01))   # sqrt ลด extreme
+        position_weights.append(pw)
 
-        # Normalize ให้สมดุล: square root เพื่อลด bias
-        digits_list = list(range(10))
-        weights_list = [float(gap_scores[d]) ** 0.6 for d in digits_list]
-        chosen = rng.choices(digits_list, weights=weights_list, k=1)[0]
-        predicted.append(str(chosen))
-
-    return ''.join(predicted)
+    return _make_scores(position_weights, prize_len, rng)
 
 
-# ---------- Method 3: Markov Chain ----------
+# ──────────────────────────────────────────────
+#  Method 4: Hot-Streak Detection
+# ──────────────────────────────────────────────
 
-def markov_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+def hot_streak_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
     """
-    ทำนายโดย Markov Chain: ดูว่าหลังจากเลขนี้ออก ตำแหน่งนี้มักจะออกเลขอะไรถัดไป
+    ตรวจหาเลขที่ออกซ้ำติดต่อกัน (streak) ใน 3 งวดล่าสุด
+    streak=3: bonus สูงมาก
+    streak=2: bonus กลาง
+    streak=1: ออกงวดล่าสุดแค่ครั้งเดียว = bonus น้อย
+    ไม่ออกเลย = baseline
+
+    ใช้ร่วมกับ base frequency ระยะสั้น (5 งวด) เพื่อไม่ให้ overshoot
     """
-    if len(history) < 3:
-        return weighted_frequency_predict(history, prize_len, rng)
+    if not history:
+        return "0" * prize_len
     if rng is None:
         rng = random.Random()
 
-    # สร้าง transition matrix ในแต่ละตำแหน่ง
-    transitions = [defaultdict(Counter) for _ in range(prize_len)]
-    ordered = list(reversed(history))  # เรียงจากเก่า -> ใหม่
+    STREAK_LOOK = min(5, len(history))
+    sub = history[:STREAK_LOOK]
 
-    for idx in range(1, len(ordered)):
-        prev_digits = _pad_or_trim(_extract_digits(ordered[idx - 1]), prize_len)
-        curr_digits = _pad_or_trim(_extract_digits(ordered[idx]), prize_len)
+    # base: frequency ใน 10 งวดล่าสุด
+    base_window = min(10, len(history))
+    position_weights = [{d: 0.2 for d in range(10)} for _ in range(prize_len)]
+    for lr in history[:base_window]:
+        digits = _pad_or_trim(_extract_digits(lr), prize_len)
+        for i, d in enumerate(digits):
+            position_weights[i][d] += 0.1
+
+    # streak bonus
+    STREAK_BONUS = {3: 3.5, 2: 2.0, 1: 1.0}
+    for i in range(prize_len):
+        digit_streak = {}
+        for d in range(10):
+            streak = 0
+            for lr in sub:
+                digits = _pad_or_trim(_extract_digits(lr), prize_len)
+                if digits[i] == d:
+                    streak += 1
+                else:
+                    break  # streak ต้องติดต่อกัน
+            digit_streak[d] = streak
+
+        for d in range(10):
+            s = digit_streak[d]
+            bonus = STREAK_BONUS.get(s, 0.0)
+            if s >= 4:
+                bonus = 4.5   # rare แต่ให้ bonus สูงสุด
+            position_weights[i][d] += bonus
+
+    return _make_scores(position_weights, prize_len, rng)
+
+
+# ──────────────────────────────────────────────
+#  Method 5: 2nd-Order Markov Chain
+# ──────────────────────────────────────────────
+
+def markov2_predict(history: list, prize_len=6, rng: random.Random = None) -> str:
+    """
+    Markov Chain อันดับ 2: ดู 2 งวดก่อนหน้า → ทำนายงวดถัดไป
+    pattern มีความละเอียดกว่า 1st-order มาก
+
+    Fallback: ถ้า state ไม่เคยเห็น → ใช้ 1st-order
+              ถ้า 1st-order ก็ไม่มี → ใช้ exp_decay
+    """
+    if len(history) < 5:
+        return exp_decay_predict(history, prize_len, rng)
+    if rng is None:
+        rng = random.Random()
+
+    ordered = list(reversed(history))   # เรียงจากเก่า → ใหม่
+    results = [_pad_or_trim(_extract_digits(lr), prize_len) for lr in ordered]
+
+    # สร้าง transition table สำหรับ 2nd-order
+    trans2 = [defaultdict(Counter) for _ in range(prize_len)]
+    trans1 = [defaultdict(Counter) for _ in range(prize_len)]
+
+    for idx in range(2, len(results)):
+        prev2 = results[idx - 2]
+        prev1 = results[idx - 1]
+        curr  = results[idx]
         for pos in range(prize_len):
-            transitions[pos][prev_digits[pos]][curr_digits[pos]] += 1
+            state2 = (prev2[pos], prev1[pos])
+            trans2[pos][state2][curr[pos]] += 1
+            trans1[pos][prev1[pos]][curr[pos]] += 1
 
-    # ใช้งวดล่าสุดเป็น state ปัจจุบัน
-    last_digits = _pad_or_trim(_extract_digits(history[0]), prize_len)
+    # state ปัจจุบัน = 2 งวดล่าสุด (history[0]=ล่าสุด, history[1]=ก่อนนั้น)
+    last1 = _pad_or_trim(_extract_digits(history[0]), prize_len)
+    last2 = _pad_or_trim(_extract_digits(history[1]), prize_len) if len(history) >= 2 else last1
 
     predicted = []
     for pos in range(prize_len):
-        current_state = last_digits[pos]
-        if current_state in transitions[pos] and transitions[pos][current_state]:
-            counter = transitions[pos][current_state]
+        state2 = (last2[pos], last1[pos])
+        state1 = last1[pos]
+
+        if state2 in trans2[pos] and trans2[pos][state2]:
+            # มี 2nd-order data
+            counter = trans2[pos][state2]
+            options = list(counter.keys())
+            weights = [float(counter[d]) for d in options]
+            chosen = rng.choices(options, weights=weights, k=1)[0]
+        elif state1 in trans1[pos] and trans1[pos][state1]:
+            # fallback 1st-order
+            counter = trans1[pos][state1]
             options = list(counter.keys())
             weights = [float(counter[d]) for d in options]
             chosen = rng.choices(options, weights=weights, k=1)[0]
         else:
-            # ไม่มีข้อมูล fallback ไป weighted freq
-            chosen = int(weighted_frequency_predict(history, prize_len, rng)[pos])
+            # fallback exp_decay
+            chosen = int(exp_decay_predict(history, prize_len, rng)[pos])
         predicted.append(str(chosen))
 
     return ''.join(predicted)
 
 
-# ---------- Method 4: Random Forest (optional) ----------
+# ──────────────────────────────────────────────
+#  Adaptive Ensemble Weights (Mini-Backtest)
+# ──────────────────────────────────────────────
 
-def rf_predict(history: list, prize_len=6, target_date: date = None, rng: random.Random = None) -> str:
-    """Random Forest prediction พร้อม date-based seed"""
-    if len(history) < 10:
-        return weighted_frequency_predict(history, prize_len, rng)
+def _backtest_weights(history: list, prize_len=6, backtest_n=10) -> dict:
+    """
+    Backtest ย้อนหลัง `backtest_n` งวด:
+    สำหรับแต่ละงวด i ใน backtest_n งวดล่าสุด:
+      - ใช้ history[i+1:] เป็น training
+      - ทำนาย history[i]
+      - นับ digit ที่ถูกต้องต่อ method
 
-    try:
-        from sklearn.ensemble import RandomForestClassifier
+    คืน dict: {method_name: normalized_weight}
+    ถ้า backtest_n น้อยกว่า data ที่มี → ใช้ default weights
+    """
+    DEFAULT_WEIGHTS = {
+        'exp_decay':    1.5,
+        'multi_window': 1.5,
+        'gap_freq':     1.5,
+        'hot_streak':   1.0,
+        'markov2':      1.5,
+    }
 
-        ordered = list(reversed(history))
-        results = [_pad_or_trim(_extract_digits(lr), prize_len) for lr in ordered]
+    min_needed = backtest_n + 5   # ต้องการ data อีก >= 5 งวดสำหรับ training
+    if len(history) < min_needed:
+        logger.debug("ข้อมูลน้อยเกินไป ใช้ default weights")
+        return DEFAULT_WEIGHTS
 
-        WINDOW = 5
-        X, y = [], []
-        for i in range(WINDOW, len(results)):
-            features = []
-            for j in range(WINDOW):
-                features.extend(results[i - WINDOW + j])
-            # เพิ่ม weekday และ week-of-month
-            if target_date:
-                features.append(target_date.weekday())
-                features.append(target_date.day // 7)
-            else:
-                features.append(i % 7)
-                features.append(0)
-            X.append(features)
-            y.append(results[i])
+    method_fns = {
+        'exp_decay':    exp_decay_predict,
+        'multi_window': multi_window_predict,
+        'gap_freq':     gap_freq_predict,
+        'hot_streak':   hot_streak_predict,
+        'markov2':      markov2_predict,
+    }
 
-        if len(X) < 5:
-            return weighted_frequency_predict(history, prize_len, rng)
+    rng_bt = random.Random(42)   # fixed seed สำหรับ backtest เพื่อความสม่ำเสมอ
+    scores = {m: 0 for m in method_fns}
 
-        X_arr = np.array(X)
-        y_arr = np.array(y)
+    for i in range(backtest_n):
+        actual = _pad_or_trim(_extract_digits(history[i]), prize_len)
+        train = history[i + 1:]   # ประวัติที่ "รู้" ณ ตอนนั้น
 
-        # seed จากวันที่ ไม่ใช้ 42 ตายตัว
-        rs = _date_seed(target_date) if target_date else random.randint(0, 999999)
+        for method, fn in method_fns.items():
+            rng_bt.seed(42 + i)
+            try:
+                pred_str = fn(train, prize_len, rng_bt)
+                pred = [int(c) for c in pred_str]
+                # นับ digit ที่ตรงในแต่ละ position
+                hits = sum(1 for p, a in zip(pred, actual) if p == a)
+                scores[method] += hits
+            except Exception:
+                pass   # ถ้า error ใน backtest → ได้ 0
 
-        predicted_digits = []
-        for pos in range(prize_len):
-            clf = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=6,
-                random_state=rs % 100000,
-            )
-            clf.fit(X_arr, y_arr[:, pos])
+    # Normalize: min weight = 0.5 ป้องกัน method ที่แย่ถูกตัดทิ้งหมด
+    total = max(sum(scores.values()), 1)
+    weights = {}
+    for m, s in scores.items():
+        raw = (s / total) * len(method_fns)   # scale ให้ mean ≈ 1.0
+        weights[m] = max(raw, 0.5)
 
-            last_5 = list(reversed(history[:5]))
-            features = []
-            for lr in last_5:
-                features.extend(_pad_or_trim(_extract_digits(lr), prize_len))
-            if target_date:
-                features.append(target_date.weekday())
-                features.append(target_date.day // 7)
-            else:
-                features.append(0)
-                features.append(0)
-
-            pred = clf.predict([features])[0]
-            predicted_digits.append(str(pred))
-
-        return ''.join(predicted_digits)
-
-    except Exception as e:
-        logger.error(f"RF predict error: {e}")
-        return weighted_frequency_predict(history, prize_len, rng)
+    logger.info(f"Backtest weights: {weights}")
+    return weights
 
 
-# ---------- Ensemble Voting ----------
+# ──────────────────────────────────────────────
+#  Ensemble Voting (Soft Vote + Adaptive Weights)
+# ──────────────────────────────────────────────
 
 def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> dict:
     """
-    รวม 4 วิธีโดย Soft Voting (weighted)
-    - แต่ละวิธีได้ vote ต่างกัน
-    - มี noise เพิ่มความหลากหลายตามวันที่
-    Returns dict: predicted_first, two_digit_pairs, three_digit_sets, confidence, key_digit, secondary_digit, vote_breakdown
+    รวม 5 วิธีโดย Soft Voting พร้อม Adaptive Weights จาก Backtest
+
+    Returns dict:
+      predicted_first, two_digit_pairs, three_digit_sets,
+      confidence, key_digit, secondary_digit, vote_breakdown
     """
+    EMPTY = {
+        'predicted_first': "0" * prize_len,
+        'two_digit_pairs': ["00"] * 4,
+        'three_digit_sets': ["000"] * 3,
+        'confidence': 0.0,
+        'key_digit': "0",
+        'secondary_digit': "0",
+        'vote_breakdown': [],
+    }
     if not history:
-        return {
-            'predicted_first': "000000",
-            'two_digit_pairs': ["00", "00", "00", "00"],
-            'three_digit_sets': ["000", "000", "000"],
-            'confidence': 0.0,
-            'key_digit': "0",
-            'secondary_digit': "0",
-            'vote_breakdown': []
-        }
+        return EMPTY
 
     seed = _date_seed(target_date) if target_date else random.randint(0, 999999)
     rng = random.Random(seed)
 
-    # รัน 4 วิธี
+    # ── Adaptive weights จาก backtest ──
+    method_weights = _backtest_weights(history, prize_len, backtest_n=10)
+
+    # ── รันทุก method ──
     preds = {
-        'weighted_freq': weighted_frequency_predict(history, prize_len, rng),
-        'gap':           gap_predict(history, prize_len, rng),
-        'markov':        markov_predict(history, prize_len, rng),
-        'rf':            rf_predict(history, prize_len, target_date, rng),
+        'exp_decay':    exp_decay_predict(history, prize_len, rng),
+        'multi_window': multi_window_predict(history, prize_len, rng),
+        'gap_freq':     gap_freq_predict(history, prize_len, rng),
+        'hot_streak':   hot_streak_predict(history, prize_len, rng),
+        'markov2':      markov2_predict(history, prize_len, rng),
     }
-
-    # น้ำหนักของแต่ละวิธี
-    method_weights = {
-        'weighted_freq': 1.5,
-        'gap':           4.0,   # Gap analysis สูงสุด — ช่วยทำลาย bias
-        'markov':        1.0,   # ลดลง เพราะมักดึงเลขซ้ำจากประวัติ
-        'rf':            1.5,
-    }
-
     logger.info(f"Individual predictions: {preds}")
+    logger.info(f"Method weights: {method_weights}")
 
+    # ── Soft Vote per position ──
     final = []
     total_score = 0.0
-    
-    # สำหรับเก็บข้อมูลโหวตของแต่ละตำแหน่ง
     vote_breakdown = []
-    # สำหรับสะสมคะแนนโหวตทั้งหมดเพื่อหาตัวเลขเด่นภาพรวม
     overall_scores = defaultdict(float)
-    
-    # สำหรับเก็บตัวเลือกอันดับท็อปในแต่ละตำแหน่ง
     top_digits_per_pos = []
 
     for pos in range(prize_len):
-        # สะสมคะแนนในแต่ละตำแหน่งให้แต่ละ digit
         digit_scores = defaultdict(float)
         for method, pred in preds.items():
             if len(pred) > pos:
                 d = pred[pos]
-                digit_scores[d] += method_weights[method]
+                digit_scores[d] += method_weights.get(method, 1.0)
 
-        # คำนวณเปอร์เซ็นต์โหวตของแต่ละหลัก
-        total_pos_score = sum(digit_scores.values()) if digit_scores else 1.0
+        # เปอร์เซ็นต์โหวต
+        total_pos_score = sum(digit_scores.values()) or 1.0
         sorted_pos = []
         for d in range(10):
             d_str = str(d)
             score = digit_scores.get(d_str, 0.0)
-            percentage = round((score / total_pos_score) * 100, 1)
-            sorted_pos.append((d_str, percentage))
-            # สะสมคะแนนภาพรวม
+            pct = round((score / total_pos_score) * 100, 1)
+            sorted_pos.append((d_str, pct))
             overall_scores[d_str] += score
-            
         sorted_pos.sort(key=lambda x: x[1], reverse=True)
         vote_breakdown.append(sorted_pos)
-        
-        # เก็บอันดับหลักร้อย หลักสิบ หลักหน่วย เพื่อนำไปจับคู่แนะนำ
-        top_digits = [item[0] for item in sorted_pos]
-        top_digits_per_pos.append(top_digits)
 
-        # เลือก digit ที่คะแนนสูงสุด
+        top_digits_per_pos.append([item[0] for item in sorted_pos])
+
+        # เลือก digit ชนะ
         if digit_scores:
             best_digit = max(digit_scores, key=digit_scores.get)
             best_score = digit_scores[best_digit]
@@ -320,71 +455,71 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> di
         else:
             best_digit = str(rng.randint(0, 9))
             total_score += 0.5
-
         final.append(best_digit)
 
-    # Confidence = สัดส่วนที่วิธีต่างๆ เห็นตรงกัน
-    avg_agreement = total_score / prize_len  # 0.0 - 1.0
-    # Scale ให้อยู่ระหว่าง 65% - 93%
-    confidence = 65.0 + avg_agreement * 28.0
-    confidence = min(93.0, max(65.0, confidence))
-    
-    # หาเลขเด่น / เลขรอง ภาพรวม (2 อันดับแรกจากคะแนนสะสมรวม)
+    # ── Confidence ──
+    avg_agreement = total_score / prize_len   # 0.0 – 1.0
+    confidence = 60.0 + avg_agreement * 30.0
+    confidence = min(90.0, max(60.0, confidence))
+
+    # ── Key / Secondary digit ──
     sorted_overall = sorted(overall_scores.items(), key=lambda x: x[1], reverse=True)
-    key_digit = sorted_overall[0][0] if len(sorted_overall) > 0 else "0"
+    key_digit       = sorted_overall[0][0] if sorted_overall else "0"
     secondary_digit = sorted_overall[1][0] if len(sorted_overall) > 1 else "1"
-    
-    # คำนวณชุดเลขท้าย 2 ตัวแนะนำ 4 ชุด (จากหลักสิบและหลักหน่วย)
-    # สมมติ prize_len = 6, หลักสิบคือตำแหน่ง index 4, หลักหน่วยคือตำแหน่ง index 5
-    tens_top = top_digits_per_pos[prize_len - 2][:2] if prize_len >= 2 else ["0", "1"]
-    units_top = top_digits_per_pos[prize_len - 1][:2] if prize_len >= 1 else ["0", "1"]
-    
-    two_digit_pairs = []
-    for t in tens_top:
-        for u in units_top:
-            two_digit_pairs.append(f"{t}{u}")
-            
-    # คำนวณชุดเลขท้าย 3 ตัวแนะนำ 3 ชุด (จากหลักร้อย หลักสิบ หลักหน่วย)
-    hunds_top = top_digits_per_pos[prize_len - 3][:2] if prize_len >= 3 else ["0", "1"]
-    
+
+    # ── เลขท้าย 2 ตัวแนะนำ 3 ชุด (diagonal — กระจาย coverage สูงสุดใน 3 ชุด) ──
+    # tens_top[0], units_top[0] = top candidate แต่ละหลัก
+    # tens_top[1], units_top[1] = อันดับ 2 ของแต่ละหลัก
+    tens_top  = top_digits_per_pos[prize_len - 2][:3] if prize_len >= 2 else ["0", "1", "2"]
+    units_top = top_digits_per_pos[prize_len - 1][:3] if prize_len >= 1 else ["0", "1", "2"]
+    two_digit_pairs = [
+        f"{tens_top[0]}{units_top[0]}",   # ชุดที่ 1: อันดับ 1 ทั้ง 2 หลัก
+        f"{tens_top[0]}{units_top[1]}",   # ชุดที่ 2: สิบ #1, หน่วย #2
+        f"{tens_top[1]}{units_top[0]}",   # ชุดที่ 3: สิบ #2, หน่วย #1
+    ]
+
+    # ── เลขท้าย 3 ตัวแนะนำ 3 ชุด (diagonal) ──
+    hunds_top = top_digits_per_pos[prize_len - 3][:3] if prize_len >= 3 else ["0", "1", "2"]
     three_digit_sets = [
-        f"{hunds_top[0]}{tens_top[0]}{units_top[0]}",
-        f"{hunds_top[0]}{tens_top[1]}{units_top[1]}" if len(tens_top) > 1 and len(units_top) > 1 else f"{hunds_top[0]}12",
-        f"{hunds_top[1]}{tens_top[0]}{units_top[1]}" if len(hunds_top) > 1 and len(units_top) > 1 else f"3{tens_top[0]}4",
+        f"{hunds_top[0]}{tens_top[0]}{units_top[0]}",   # ชุดที่ 1: อันดับ 1 ทุกหลัก
+        f"{hunds_top[1]}{tens_top[0]}{units_top[1]}",   # ชุดที่ 2: ร้อย #2, สิบ #1, หน่วย #2
+        f"{hunds_top[2]}{tens_top[1]}{units_top[0]}",   # ชุดที่ 3: ร้อย #3, สิบ #2, หน่วย #1
     ]
 
     return {
-        'predicted_first': ''.join(final),
-        'two_digit_pairs': two_digit_pairs,
+        'predicted_first':  ''.join(final),
+        'two_digit_pairs':  two_digit_pairs,
         'three_digit_sets': three_digit_sets,
-        'confidence': round(confidence, 1),
-        'key_digit': key_digit,
-        'secondary_digit': secondary_digit,
-        'vote_breakdown': vote_breakdown
+        'confidence':       round(confidence, 1),
+        'key_digit':        key_digit,
+        'secondary_digit':  secondary_digit,
+        'vote_breakdown':   vote_breakdown,
     }
 
 
-# ---------- Public API ----------
+# ──────────────────────────────────────────────
+#  Public API
+# ──────────────────────────────────────────────
 
 def predict_next(target_date: date = None) -> dict:
     """
     ทำนายหวยงวดถัดไป
-    Returns dict: predicted_first, predicted_two, predicted_three, confidence
+    Returns dict: predicted_first, predicted_two, predicted_three, confidence, ...
     """
     if target_date is None:
         from lottery.services.utils import get_next_draw_date
         target_date = get_next_draw_date()
 
-    history = _get_history(limit=60)
+    history = _get_history(limit=80)
 
     if not history:
         logger.warning("ไม่มีข้อมูลประวัติ ไม่สามารถทำนายได้")
         return {
             'predicted_first': 'N/A',
-            'predicted_two': 'N/A',
+            'predicted_two':   'N/A',
             'predicted_three': 'N/A',
             'confidence': 0.0,
-            'note': 'กรุณาดึงข้อมูลประวัติก่อน'
+            'note': 'กรุณาดึงข้อมูลประวัติก่อน',
         }
 
     prize_len = 6
@@ -393,19 +528,18 @@ def predict_next(target_date: date = None) -> dict:
         if sample_digits:
             prize_len = len(sample_digits)
 
-    # Dynamic Ensemble: แต่ละวันได้เลขต่างกัน ไม่ซ้ำ
     res = ensemble_predict(history, prize_len, target_date)
 
     return {
-        'predicted_first': res['predicted_first'],
-        'predicted_two':   ', '.join(res['two_digit_pairs']),
-        'predicted_three': ', '.join(res['three_digit_sets']),
-        'confidence': res['confidence'],
-        'model_used': 'ensemble',
-        'based_on': len(history),
-        'key_digit': res['key_digit'],
-        'secondary_digit': res['secondary_digit'],
-        'vote_breakdown': res['vote_breakdown']
+        'predicted_first':  res['predicted_first'],
+        'predicted_two':    ', '.join(res['two_digit_pairs']),
+        'predicted_three':  ', '.join(res['three_digit_sets']),
+        'confidence':       res['confidence'],
+        'model_used':       'ensemble_v3',
+        'based_on':         len(history),
+        'key_digit':        res['key_digit'],
+        'secondary_digit':  res['secondary_digit'],
+        'vote_breakdown':   res['vote_breakdown'],
     }
 
 
@@ -417,7 +551,7 @@ def save_prediction(target_date: date = None) -> 'Prediction':
         from lottery.services.utils import get_next_draw_date
         target_date = get_next_draw_date()
 
-    # ลบ prediction เก่าทั้งหมดของวันนั้นเพื่อป้องกันการซ้ำซ้อน
+    # ลบ prediction เก่าทั้งหมดของวันนั้น
     Prediction.objects.filter(target_date=target_date).delete()
 
     result = predict_next(target_date)
@@ -430,7 +564,7 @@ def save_prediction(target_date: date = None) -> 'Prediction':
         predicted_two=result['predicted_two'],
         predicted_three=result['predicted_three'],
         confidence=result['confidence'],
-        model_used=result.get('model_used', 'ensemble'),
+        model_used=result.get('model_used', 'ensemble_v3'),
         key_digit=result.get('key_digit', 'N/A'),
         secondary_digit=result.get('secondary_digit', 'N/A'),
         vote_breakdown=result.get('vote_breakdown', None),
@@ -440,7 +574,10 @@ def save_prediction(target_date: date = None) -> 'Prediction':
     if actual:
         pred.evaluate()
 
-    logger.info(f"บันทึก prediction งวด {target_date}: {result['predicted_first']} (confidence: {result['confidence']}%)")
+    logger.info(
+        f"บันทึก prediction งวด {target_date}: "
+        f"{result['predicted_first']} (confidence: {result['confidence']}%)"
+    )
     return pred
 
 
@@ -452,20 +589,23 @@ def get_accuracy_stats() -> dict:
     total = evaluated.count()
 
     if total == 0:
-        return {'total': 0, 'correct_two': 0, 'correct_three': 0, 'correct_first': 0,
-                'acc_two': 0, 'acc_three': 0, 'acc_first': 0}
+        return {
+            'total': 0,
+            'correct_two': 0, 'correct_three': 0, 'correct_first': 0,
+            'acc_two': 0, 'acc_three': 0, 'acc_first': 0,
+        }
 
     from django.db.models import Q
-    correct_two = evaluated.filter(Q(is_correct_two=True) | Q(is_correct_two_top=True)).count()
+    correct_two   = evaluated.filter(Q(is_correct_two=True) | Q(is_correct_two_top=True)).count()
     correct_three = evaluated.filter(is_correct_three=True).count()
     correct_first = evaluated.filter(is_correct_first=True).count()
 
     return {
-        'total': total,
-        'correct_two': correct_two,
+        'total':         total,
+        'correct_two':   correct_two,
         'correct_three': correct_three,
         'correct_first': correct_first,
-        'acc_two': round(correct_two / total * 100, 1),
+        'acc_two':   round(correct_two   / total * 100, 1),
         'acc_three': round(correct_three / total * 100, 1),
         'acc_first': round(correct_first / total * 100, 1),
     }
@@ -480,7 +620,10 @@ def get_statistical_analysis(limit=30) -> dict:
     """
     history = _get_history(limit=limit)
     if not history:
-        return {'avg_sum': 0, 'min_sum': 0, 'max_sum': 0, 'digital_roots': {}, 'common_digital_root': '-', 'total_analyzed': 0}
+        return {
+            'avg_sum': 0, 'min_sum': 0, 'max_sum': 0,
+            'digital_roots': {}, 'common_digital_root': '-', 'total_analyzed': 0,
+        }
 
     sums = []
     digital_roots = Counter()
@@ -493,14 +636,14 @@ def get_statistical_analysis(limit=30) -> dict:
             dr = (s - 1) % 9 + 1 if s > 0 else 0
             digital_roots[dr] += 1
 
-    avg_sum = round(sum(sums) / len(sums), 1) if sums else 0
-    common_dr = digital_roots.most_common(1)[0][0] if digital_roots else '-'
+    avg_sum    = round(sum(sums) / len(sums), 1) if sums else 0
+    common_dr  = digital_roots.most_common(1)[0][0] if digital_roots else '-'
 
     return {
-        'avg_sum': avg_sum,
-        'min_sum': min(sums) if sums else 0,
-        'max_sum': max(sums) if sums else 0,
-        'digital_roots': dict(digital_roots.most_common(3)),
+        'avg_sum':            avg_sum,
+        'min_sum':            min(sums) if sums else 0,
+        'max_sum':            max(sums) if sums else 0,
+        'digital_roots':      dict(digital_roots.most_common(3)),
         'common_digital_root': common_dr,
-        'total_analyzed': len(history),
+        'total_analyzed':     len(history),
     }
