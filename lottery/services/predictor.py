@@ -424,6 +424,7 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> di
     vote_breakdown = []
     overall_scores = defaultdict(float)
     top_digits_per_pos = []
+    raw_scores_per_pos = []   # เก็บ raw score ทุก digit ทุก position สำหรับ joint prob
 
     for pos in range(prize_len):
         digit_scores = defaultdict(float)
@@ -432,19 +433,22 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> di
                 d = pred[pos]
                 digit_scores[d] += method_weights.get(method, 1.0)
 
-        # เปอร์เซ็นต์โหวต
+        # normalize เป็น probability ต่อ position
         total_pos_score = sum(digit_scores.values()) or 1.0
+        prob_this_pos = {}
         sorted_pos = []
         for d in range(10):
             d_str = str(d)
             score = digit_scores.get(d_str, 0.0)
-            pct = round((score / total_pos_score) * 100, 1)
+            prob = score / total_pos_score
+            prob_this_pos[d_str] = prob
+            pct = round(prob * 100, 1)
             sorted_pos.append((d_str, pct))
             overall_scores[d_str] += score
         sorted_pos.sort(key=lambda x: x[1], reverse=True)
         vote_breakdown.append(sorted_pos)
-
         top_digits_per_pos.append([item[0] for item in sorted_pos])
+        raw_scores_per_pos.append(prob_this_pos)
 
         # เลือก digit ชนะ
         if digit_scores:
@@ -458,7 +462,7 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> di
         final.append(best_digit)
 
     # ── Confidence ──
-    avg_agreement = total_score / prize_len   # 0.0 – 1.0
+    avg_agreement = total_score / prize_len
     confidence = 60.0 + avg_agreement * 30.0
     confidence = min(90.0, max(60.0, confidence))
 
@@ -467,24 +471,40 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> di
     key_digit       = sorted_overall[0][0] if sorted_overall else "0"
     secondary_digit = sorted_overall[1][0] if len(sorted_overall) > 1 else "1"
 
-    # ── เลขท้าย 2 ตัวแนะนำ 3 ชุด (diagonal — กระจาย coverage สูงสุดใน 3 ชุด) ──
-    # tens_top[0], units_top[0] = top candidate แต่ละหลัก
-    # tens_top[1], units_top[1] = อันดับ 2 ของแต่ละหลัก
-    tens_top  = top_digits_per_pos[prize_len - 2][:3] if prize_len >= 2 else ["0", "1", "2"]
-    units_top = top_digits_per_pos[prize_len - 1][:3] if prize_len >= 1 else ["0", "1", "2"]
-    two_digit_pairs = [
-        f"{tens_top[0]}{units_top[0]}",   # ชุดที่ 1: อันดับ 1 ทั้ง 2 หลัก
-        f"{tens_top[0]}{units_top[1]}",   # ชุดที่ 2: สิบ #1, หน่วย #2
-        f"{tens_top[1]}{units_top[0]}",   # ชุดที่ 3: สิบ #2, หน่วย #1
-    ]
+    # ── เลขท้าย 2 ตัว: joint probability ranking ──
+    # score(XY) = prob(X ที่ position สิบ) × prob(Y ที่ position หน่วย)
+    # เลือก top-3 จาก 100 คู่ที่ joint score สูงสุด
+    if prize_len >= 2:
+        p_tens  = raw_scores_per_pos[prize_len - 2]
+        p_units = raw_scores_per_pos[prize_len - 1]
+        joint2 = []
+        for t in range(10):
+            for u in range(10):
+                score = p_tens.get(str(t), 0.0) * p_units.get(str(u), 0.0)
+                joint2.append((f"{t}{u}", score))
+        joint2.sort(key=lambda x: x[1], reverse=True)
+        two_digit_pairs = [pair for pair, _ in joint2[:3]]
+    else:
+        two_digit_pairs = ["00", "01", "10"]
 
-    # ── เลขท้าย 3 ตัวแนะนำ 3 ชุด (diagonal) ──
-    hunds_top = top_digits_per_pos[prize_len - 3][:3] if prize_len >= 3 else ["0", "1", "2"]
-    three_digit_sets = [
-        f"{hunds_top[0]}{tens_top[0]}{units_top[0]}",   # ชุดที่ 1: อันดับ 1 ทุกหลัก
-        f"{hunds_top[1]}{tens_top[0]}{units_top[1]}",   # ชุดที่ 2: ร้อย #2, สิบ #1, หน่วย #2
-        f"{hunds_top[2]}{tens_top[1]}{units_top[0]}",   # ชุดที่ 3: ร้อย #3, สิบ #2, หน่วย #1
-    ]
+    # ── เลขท้าย 3 ตัว: joint probability ranking ──
+    # score(XYZ) = prob(X ที่ร้อย) × prob(Y ที่สิบ) × prob(Z ที่หน่วย)
+    if prize_len >= 3:
+        p_hunds = raw_scores_per_pos[prize_len - 3]
+        p_tens  = raw_scores_per_pos[prize_len - 2]
+        p_units = raw_scores_per_pos[prize_len - 1]
+        joint3 = []
+        for h in range(10):
+            for t in range(10):
+                for u in range(10):
+                    score = (p_hunds.get(str(h), 0.0)
+                             * p_tens.get(str(t), 0.0)
+                             * p_units.get(str(u), 0.0))
+                    joint3.append((f"{h}{t}{u}", score))
+        joint3.sort(key=lambda x: x[1], reverse=True)
+        three_digit_sets = [combo for combo, _ in joint3[:3]]
+    else:
+        three_digit_sets = ["000", "001", "010"]
 
     return {
         'predicted_first':  ''.join(final),
@@ -495,6 +515,7 @@ def ensemble_predict(history: list, prize_len=6, target_date: date = None) -> di
         'secondary_digit':  secondary_digit,
         'vote_breakdown':   vote_breakdown,
     }
+
 
 
 # ──────────────────────────────────────────────

@@ -145,7 +145,7 @@ def fetch_history(days=30):
     """ดึงข้อมูลประวัติจาก MThai ย้อนหลัง"""
     from lottery.models import LotteryResult
     
-    mthai_data = fetch_mthai_results(pages=3)  # ดึง 3 หน้า จะได้ราวๆ 30 งวด
+    mthai_data = fetch_mthai_results(pages=7)  # ดึงทุกหน้าที่ MThai มี (~70 งวด)
     results = []
     
     for d, digits in mthai_data.items():
