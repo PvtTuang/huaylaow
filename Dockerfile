@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 COPY . .
 
 # คำสั่งรัน Server ผ่าน Gunicorn
-CMD gunicorn --bind 0.0.0.0:$PORT huaylaow-dc7da.wsgi:application
+CMD gunicorn --bind 0.0.0.0:$PORT config.wsgi:application --timeout 120 --workers 1 --threads 2

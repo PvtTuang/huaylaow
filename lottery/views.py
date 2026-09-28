@@ -4,6 +4,7 @@ from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib import messages
 from django.utils import timezone  # ใช้ timezone ของ Django แทน date.today()
+from django.views.decorators.csrf import csrf_exempt
 
 from lottery.models import LotteryResult, Prediction, FetchLog
 from lottery.services.predictor import predict_next, save_prediction, get_accuracy_stats, get_statistical_analysis
@@ -183,6 +184,7 @@ def _calc_hot_numbers(num_draws=20) -> list:
     return counter.most_common(5)
 
 
+@csrf_exempt
 def cron_job(request):
     """Cron Endpoint (GET/POST): Auto-fetch results & update predictions for automated schedulers"""
     try:
