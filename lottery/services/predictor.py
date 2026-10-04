@@ -394,17 +394,64 @@ def rebuild_history(last_n: int = 120) -> int:
 
 _refresh_lock = threading.Lock()
 _refresh_running = False
+_last_backfill_at = None
+BACKFILL_COOLDOWN_SEC = 6 * 3600
+EARLIEST_MTHAI_DATE = date(2022, 12, 1)   # MThai มีข้อมูลย้อนไปถึงปลายปี 2022
+
+
+def has_missing_results() -> bool:
+    """
+    มีงวดที่ขาด? นับเฉพาะวันที่ควรมีผลจริง: จันทร์-ศุกร์ตั้งแต่ DAILY_SCHEDULE_START
+    ยกเว้นวันงดออกรางวัล (NO_DRAW_DATES) และผลล่าสุดต้องครบถึงปัจจุบัน
+    หรือประวัติสั้นกว่าที่ MThai มี
+    """
+    from datetime import time, timedelta
+    from django.utils import timezone
+    from lottery.models import LotteryResult
+    from lottery.services.fetcher import DAILY_SCHEDULE_START, NO_DRAW_DATES
+
+    dates = set(LotteryResult.objects.exclude(first_prize='').values_list('draw_date', flat=True))
+    if not dates:
+        return True
+    if min(dates) > EARLIEST_MTHAI_DATE:
+        return True
+
+    now = timezone.localtime()
+    last_due = now.date() if now.time() >= time(21, 0) else now.date() - timedelta(days=1)
+
+    day = DAILY_SCHEDULE_START
+    while day <= last_due:
+        if day.weekday() < 5 and day not in NO_DRAW_DATES and day not in dates:
+            return True
+        day += timedelta(days=1)
+    return False
+
+
+def backfill_missing_results() -> int:
+    """ดึงผลที่ขาดมาเติมให้ครบถึงปัจจุบัน คืนจำนวนงวดที่เพิ่มเข้ามา"""
+    from lottery.models import LotteryResult
+    from lottery.services.fetcher import fetch_history
+    first = LotteryResult.objects.exclude(first_prize='').order_by('draw_date').values_list('draw_date', flat=True).first()
+    deep = first is None or first > EARLIEST_MTHAI_DATE
+    return len(fetch_history(pages=100 if deep else 5))
 
 
 def kick_model_refresh():
     """
-    ถ้ามี prediction จากโมเดลเก่าค้างอยู่ → rebuild ใน background thread (ครั้งเดียวต่อ process)
-    ไม่บล็อก request
+    Background thread (ไม่บล็อก request, ทำครั้งเดียวต่อรอบ):
+      1) ถ้ามีงวดขาด → ดึงจาก MThai มาเติมให้ครบ
+      2) ถ้ามีคำทำนายจากโมเดลเก่า หรือเพิ่งเติมผลเข้ามา → rebuild ประวัติแบบ walk-forward
     """
-    global _refresh_running
+    global _refresh_running, _last_backfill_at
+    import time as _time
     from lottery.models import Prediction
     try:
-        if not Prediction.objects.exclude(model_used=MODEL_VERSION).exists():
+        legacy = Prediction.objects.exclude(model_used=MODEL_VERSION).exists()
+        backfill_due = (
+            (_last_backfill_at is None or _time.time() - _last_backfill_at > BACKFILL_COOLDOWN_SEC)
+            and has_missing_results()
+        )
+        if not legacy and not backfill_due:
             return
     except Exception:
         return
@@ -414,13 +461,19 @@ def kick_model_refresh():
         _refresh_running = True
 
     def _job():
-        global _refresh_running
+        global _refresh_running, _last_backfill_at
         try:
             from django.db import connection
-            rebuild_history()
+            added = 0
+            if backfill_due:
+                _last_backfill_at = _time.time()
+                added = backfill_missing_results()
+                logger.info(f"backfill: เติมผลที่ขาดได้ {added} งวด")
+            if legacy or added:
+                rebuild_history()
             connection.close()
         except Exception as e:
-            logger.error(f"rebuild_history failed: {e}", exc_info=True)
+            logger.error(f"model refresh failed: {e}", exc_info=True)
         finally:
             _refresh_running = False
 

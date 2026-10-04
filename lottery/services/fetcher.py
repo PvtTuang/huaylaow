@@ -30,9 +30,12 @@ def fetch_mthai_results(pages=1):
         try:
             resp = requests.get(url, headers=headers, timeout=15)
             resp.raise_for_status()
+            resp.encoding = 'utf-8'
             
             # Use regex directly on html text for simplicity
             matches = re.findall(r'งวดวัน.*?(\d{1,2})\s*([ก-๙]+)\s*(25\d{2})\s*เลข 6 ตัว\s*(\d{6})', resp.text)
+            if not matches:
+                break   # หมดหน้าแล้ว
             
             for d, m_th, y_th, digits in matches:
                 try:
@@ -47,6 +50,7 @@ def fetch_mthai_results(pages=1):
                     
         except Exception as e:
             logger.error(f"MThai fetch error on page {page}: {e}")
+            break
             
     return results
 
@@ -141,11 +145,33 @@ def _evaluate_predictions(lottery_result):
         pred.evaluate()
 
 
-def fetch_history(days=30):
-    """ดึงข้อมูลประวัติจาก MThai ย้อนหลัง"""
+# หวยลาวพัฒนาออกผลทุกวันจันทร์-ศุกร์ ตั้งแต่ต้นเดือนเมษายน 2569 (ก่อนหน้านั้นออก จันทร์/พุธ/ศุกร์)
+DAILY_SCHEDULE_START = date(2026, 4, 6)
+
+# วันที่ประกาศงดออกรางวัล (ไม่ใช่ข้อมูลขาด): สงกรานต์ลาว 14-16 เม.ย. และวันแรงงาน 1 พ.ค. 2569
+NO_DRAW_DATES = {
+    date(2026, 4, 14), date(2026, 4, 15), date(2026, 4, 16), date(2026, 5, 1),
+}
+
+# งวดที่ออกจริงแต่ MThai ไม่มีในหน้ารวมผล (ตรวจจากเว็บข่าว สนุก/สยามรัฐ/ข่าวสด/เดอะไทยเกอร์)
+MANUAL_RESULTS = {
+    date(2026, 5, 13): '220572',
+    date(2026, 5, 21): '938769',
+    date(2026, 5, 27): '680172',
+    date(2026, 5, 29): '762722',
+    date(2026, 6, 1):  '587788',
+    date(2026, 9, 14): '043344',
+}
+
+
+def fetch_history(days=30, pages=100):
+    """ดึงข้อมูลประวัติจาก MThai ย้อนหลัง (หยุดเองเมื่อหมดหน้า ~65 หน้า) แล้วเติมงวดที่ MThai ไม่มี"""
     from lottery.models import LotteryResult
     
-    mthai_data = fetch_mthai_results(pages=7)  # ดึงทุกหน้าที่ MThai มี (~70 งวด)
+    mthai_data = fetch_mthai_results(pages=pages)
+    from_mthai = set(mthai_data)
+    for d, digits in MANUAL_RESULTS.items():
+        mthai_data.setdefault(d, digits)
     results = []
     
     for d, digits in mthai_data.items():
@@ -159,7 +185,7 @@ def fetch_history(days=30):
                 two_digit_top=parsed['two_digit_top'],
                 three_digit=parsed['three_digit'],
                 four_digit=parsed['four_digit'],
-                raw_data=parsed['raw_data']
+                raw_data=parsed['raw_data'] if d in from_mthai else f'Manual (news sites): {digits}'
             )
             _evaluate_predictions(obj)
             results.append(obj)
