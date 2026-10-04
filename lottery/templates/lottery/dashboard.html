@@ -153,7 +153,7 @@
 <div class="hero">
     <div class="hero-subtitle">🤖 ระบบ AI วิเคราะห์หวย</div>
     <h1 class="hero-title">หวยลาวพัฒนา</h1>
-    <p class="hero-desc">ระบบทำนายผลรางวัลด้วย Machine Learning<br>Ensemble Model • อัปเดตทุกวัน</p>
+    <p class="hero-desc">ระบบทำนายผลรางวัลด้วยสถิติ Bayesian<br>ทดสอบย้อนหลังแบบ Walk-forward • อัปเดตทุกวัน</p>
 </div>
 
 <!-- MAIN CONTENT -->
@@ -255,7 +255,7 @@
 
             <!-- Confidence -->
             <div class="mini-result" style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; border-radius: 8px;">
-                <span class="label" style="margin: 0;">ความเห็นพ้องของ AI (Confidence)</span>
+                <span class="label" style="margin: 0;">โอกาสถูก 2 ตัว (โมเดลประเมิน)</span>
                 <span class="number" style="color:var(--warning); font-size: 1.25rem;">{{ prediction.confidence }}%</span>
             </div>
         {% else %}
@@ -297,7 +297,7 @@
         {% endfor %}
     </div>
     <div style="margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); text-align: right;">
-        * แสดงผลโหวตสูงสุด 4 อันดับแรกของโมเดลวิเคราะห์ (Ensemble voting) แยกอิสระในแต่ละตำแหน่ง
+        * ความน่าจะเป็นรายตำแหน่งจากโมเดล Bayesian (แสดง 4 อันดับแรก) — ผลหวยเป็นการสุ่ม โอกาสถูกจริงใกล้เคียงการเดา ใช้เพื่อความบันเทิงเท่านั้น
     </div>
 </div>
 {% endif %}

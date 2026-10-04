@@ -7,7 +7,10 @@ from django.utils import timezone  # ใช้ timezone ของ Django แท�
 from django.views.decorators.csrf import csrf_exempt
 
 from lottery.models import LotteryResult, Prediction, FetchLog
-from lottery.services.predictor import predict_next, save_prediction, get_accuracy_stats, get_statistical_analysis
+from lottery.services.predictor import (
+    predict_next, save_prediction, get_accuracy_stats, get_statistical_analysis,
+    prediction_is_stale, kick_model_refresh,
+)
 from lottery.services.fetcher import fetch_and_save
 import traceback
 
@@ -46,9 +49,8 @@ def dashboard(request):
     next_draw_date = get_next_draw_date(now_local)
     
     prediction = Prediction.objects.filter(target_date=next_draw_date).first()
-    # ถ้ายังไม่มีผลการทำนาย หรือข้อมูลในระบบยังไม่ได้อัปเกรดเพื่อรองรับการเก็บฟิลด์ใหม่ (เช่น key_digit เป็น N/A หรือไม่มี vote_breakdown)
-    # ให้สั่งคำนวณใหม่และบันทึกลงฐานข้อมูลทันทีเพียงครั้งเดียว
-    if not prediction or prediction.key_digit == 'N/A' or prediction.vote_breakdown is None:
+    # สร้างใหม่ถ้าไม่มี / มาจากโมเดลเก่า / มีผลหวยใหม่ออกหลังจากที่ทำนายไว้ (กันทายด้วยข้อมูลเก่า)
+    if prediction_is_stale(prediction):
         try:
             prediction = save_prediction(next_draw_date)
         except Exception as e:
@@ -57,6 +59,9 @@ def dashboard(request):
             logger.error(f"Prediction failed for {next_draw_date}: {e}", exc_info=True)
             if not prediction:
                 prediction = None
+
+    # ถ้ายังมีประวัติการทำนายจากโมเดลเก่า → rebuild แบบ walk-forward ใน background (ไม่บล็อกหน้าเว็บ)
+    kick_model_refresh()
             
     # แยกและประมวลผลข้อมูลสำหรับการแสดงผลพรีเมียม
     predicted_twos = []
@@ -108,6 +113,7 @@ def history(request):
     """หน้าประวัติผลหวยทั้งหมด"""
     today = timezone.localdate()
     _check_and_fetch_pending(today)
+    kick_model_refresh()
 
     results = LotteryResult.objects.order_by('-draw_date')
     predictions = Prediction.objects.order_by('-target_date')[:30]
