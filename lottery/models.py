@@ -71,9 +71,9 @@ class Prediction(models.Model):
     """เก็บผลการทำนายแต่ละงวด"""
     target_date = models.DateField(verbose_name="งวดที่ทำนาย")
     predicted_first = models.CharField(max_length=20, verbose_name="ทำนายรางวัลที่ 1")
-    predicted_two = models.CharField(max_length=10, blank=True, verbose_name="ทำนาย 2 ตัวท้าย")
+    predicted_two = models.CharField(max_length=200, blank=True, verbose_name="ทำนาย 2 ตัวท้าย")
     predicted_two_top = models.CharField(max_length=100, blank=True, verbose_name="ทำนาย 2 ตัวบน")
-    predicted_three = models.CharField(max_length=10, blank=True, verbose_name="ทำนาย 3 ตัวท้าย")
+    predicted_three = models.CharField(max_length=100, blank=True, verbose_name="ทำนาย 3 ตัวท้าย")
     predicted_four = models.CharField(max_length=100, blank=True, verbose_name="ทำนาย 4 ตัวท้าย")
     confidence = models.FloatField(default=0.0, verbose_name="ความมั่นใจ (%)")
     model_used = models.CharField(max_length=50, default="ensemble", verbose_name="โมเดลที่ใช้")
@@ -117,7 +117,7 @@ class Prediction(models.Model):
         firsts = [f.strip() for f in self.predicted_first.replace('/', ',').split(',') if f.strip()]
 
         self.is_correct_first = (real.first_prize in firsts) if firsts else False
-        # ตรวจสอบ 2 ตัวล่าง (two) และ 2 ตัวบน (two_top) โดยอิงจากลิสต์แนะนำ
+        # ตรวจสอบ 2 ตัวล่าง (two) และ 2 ตัวบน (two_top) แบบตรงตัวจากชุดเลข 2 ตัวที่แนะนำ
         all_predicted_twos = twos + twos_top
         self.is_correct_two = (real.last_two in all_predicted_twos) if all_predicted_twos else False
         self.is_correct_two_top = (real.last_two_top in all_predicted_twos) if all_predicted_twos else False
