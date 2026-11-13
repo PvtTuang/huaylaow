@@ -28,8 +28,8 @@ from lottery.models import LotteryResult
 PICKS = 3
 WARMUP = 100          # draws used only as history before the first scored target
 
-# Current production settings (predictor.py bayes_pool_v13) as baseline
-BASELINE = dict(window=15, decay=0.80, anti_n=3, anti_f=0.4, ctw=0.50, w_l1=1.3, w_l2=0.8, w_sum=0.5)
+# Current production settings (predictor.py bayes_pool_v15) as baseline
+BASELINE = dict(window=60, decay=0.85, anti_n=8, anti_f=0.0, ctw=2.00, w_l1=1.5, w_l2=1.5, w_sum=0.5)
 
 SPACE = dict(
     window=[5, 8, 10, 15, 20, 30, 60, 120, 300],

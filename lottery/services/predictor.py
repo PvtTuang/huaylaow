@@ -25,19 +25,19 @@ from collections import Counter, defaultdict
 
 logger = logging.getLogger(__name__)
 
-MODEL_VERSION = 'bayes_pool_v14'
+MODEL_VERSION = 'bayes_pool_v15'
 TWO_DIGIT_PICKS = 3    # ทาย 2 ตัวเน้นๆ 3 คู่เท่านั้น
-COND_TRANS_WEIGHT = 0.10
+COND_TRANS_WEIGHT = 2.00
 
-# ── Hyper-parameters สำหรับ 2 ตัว (Tuned via walk-forward backtest) ──
+# ── Hyper-parameters สำหรับ 2 ตัว (Tuned via walk-forward backtest + zero consecutive repeat) ──
 KEY_DIGIT_WINDOWS = (10, 15, 120, 200)
-DIIND_WINDOW = 30          # หน้าต่างนับความถี่แบบถ่วงน้ำหนักเอกซ์โพเนนเชียลสำหรับจับคู่ 2-ตัวท้าย
-DIIND_DECAY = 0.98         # อัตราการลดน้ำหนักตามอายุของงวด
+DIIND_WINDOW = 60          # หน้าต่างนับความถี่แบบถ่วงน้ำหนักเอกซ์โพเนนเชียลสำหรับจับคู่ 2-ตัวท้าย
+DIIND_DECAY = 0.85         # อัตราการลดน้ำหนักตามอายุของงวด
 ANTI_REPEAT_WINDOW = 8     # จำนวนงวดล่าสุดที่ลดน้ำหนักคู่ซ้ำ
-ANTI_REPEAT_FACTOR = 0.40  # ตัวคูณลดน้ำหนักคู่ที่เพิ่งออกซ้ำ
-TRANS_W_L1 = 0.0           # น้ำหนัก transition จากงวด t-1
-TRANS_W_L2 = 0.40          # น้ำหนัก transition จากงวด t-2
-TRANS_W_SUM = 0.0          # น้ำหนัก transition จากผลรวมงวด t-1
+ANTI_REPEAT_FACTOR = 0.00  # ตัดคู่ที่เพิ่งออกซ้ำใน 8 งวดล่าสุดออก
+TRANS_W_L1 = 1.50          # น้ำหนัก transition จากงวด t-1
+TRANS_W_L2 = 1.50          # น้ำหนัก transition จากงวด t-2
+TRANS_W_SUM = 0.50         # น้ำหนัก transition จากผลรวมงวด t-1
 THREE_DIGIT_WINDOW = 12    # จำนวนงวดที่ใช้นับ positional frequency สำหรับหลักร้อยของ 3-ตัวท้าย
 
 # ── Hyper-parameters ─────────────────────────────
@@ -290,12 +290,20 @@ def _forecast(
     # ── 2 ตัวท้าย (3 คู่ตรงตัว): Exponential Decay + Conditional Transition ──
     k1, k2, two, p_two_hit = _select_two_digit_and_keys(X, t, trans_tables=trans_tables)
 
-    # ── 3 ตัวท้าย: เชื่อมโยงหลักร้อยเด่นเข้ากับชุด 2 ตัวท้ายทั้ง 3 คู่ให้สอดคล้องกัน ──
+    # ── 3 ตัวท้าย: เชื่อมโยงหลักร้อยเด่น + transition จากงวดก่อน เข้ากับชุด 2 ตัวท้ายทั้ง 3 คู่ ──
     if n_pos >= 3:
         w3 = min(THREE_DIGIT_WINDOW, t)
         c_h = Counter()
         for i in range(max(0, t - w3), t):
-            c_h[int(X[i, -3])] += 0.80 ** (t - 1 - i)
+            c_h[int(X[i, -3])] += 0.70 ** (t - 1 - i)
+        # บวกความถี่การเปลี่ยนหลักร้อยจากงวด t-1 → t เพื่อให้หลักร้อยเปลี่ยนตามผลงวดล่าสุด
+        if t >= 2:
+            prev_h = int(X[t - 1, -3])
+            for i in range(1, t):
+                if int(X[i - 1, -3]) == prev_h:
+                    c_h[int(X[i, -3])] += 0.5
+        if t >= 1:
+            c_h[int(X[t - 1, -3])] *= 0.3  # ลดโอกาสทายหลักร้อยซ้ำกับงวดที่เพิ่งออก
         top_h = sorted(range(10), key=lambda d: (-c_h[d] - P[n_pos - 3][d], d))[:3]
         three = [
             f"{top_h[0]}{two[0]}",
