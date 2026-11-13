@@ -41,12 +41,12 @@ class Command(BaseCommand):
         evaluated = Prediction.objects.filter(actual_result__isnull=False)
         total = evaluated.count()
         if total:
-            c2 = evaluated.filter(Q(is_correct_two=True) | Q(is_correct_two_top=True)).count()
+            c2 = evaluated.filter(is_correct_two=True).count()
             c3 = evaluated.filter(is_correct_three=True).count()
             c1 = evaluated.filter(is_correct_first=True).count()
             self.stdout.write(self.style.SUCCESS(
                 f"\nResult ({total} draws evaluated):\n"
-                f"  2-digit  : {c2}/{total} = {c2/total*100:.1f}%   (pure chance ~5.9%)\n"
+                f"  2-digit  : {c2}/{total} = {c2/total*100:.1f}%   (pure chance ~3%)\n"
                 f"  3-digit  : {c3}/{total} = {c3/total*100:.1f}%   (pure chance ~0.3%)\n"
                 f"  6-digit  : {c1}/{total} = {c1/total*100:.1f}%   (pure chance ~0.0001%)"
             ))
