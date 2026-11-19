@@ -139,7 +139,7 @@
                     <th>เลขทำนาย</th>
                     <th>2 ตัวท้าย</th>
                     <th>3 ตัวท้าย</th>
-                    <th>อัตราถูกจริง (สะสม)</th>
+                    <th>Confidence</th>
                     <th>ผลจริง</th>
                     <th>ถูก 2 ตัว</th>
                     <th>ถูก 3 ตัว</th>
@@ -168,12 +168,22 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if p.is_correct_two is None %}
+                        {% if p.is_correct_two_top is None and p.is_correct_two is None %}
                             <span class="correct-pending">-</span>
-                        {% elif p.is_correct_two %}
-                            <span class="correct-yes">{{ p.actual_result.last_two }}</span>
                         {% else %}
-                            <span class="correct-no">{{ p.actual_result.last_two }}</span>
+                            <!-- บน (top) -->
+                            {% if p.is_correct_two_top %}
+                                <span class="correct-yes" title="2 ตัวบน ถูก">{{ p.actual_result.last_two_top }}</span>
+                            {% else %}
+                                <span class="correct-no" title="2 ตัวบน ผิด">{{ p.actual_result.last_two_top }}</span>
+                            {% endif %}
+                            <span style="color: var(--text-muted);">/</span>
+                            <!-- ล่าง (bottom) -->
+                            {% if p.is_correct_two %}
+                                <span class="correct-yes" title="2 ตัวล่าง ถูก">{{ p.actual_result.last_two }}</span>
+                            {% else %}
+                                <span class="correct-no" title="2 ตัวล่าง ผิด">{{ p.actual_result.last_two }}</span>
+                            {% endif %}
                         {% endif %}
                     </td>
                     <td>

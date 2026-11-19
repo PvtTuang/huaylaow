@@ -1,4 +1,4 @@
-﻿"""
+"""
 Prediction Engine สำหรับหวยลาวพัฒนา (v5 - Digit-Independent Frequency + Bayesian Fallback)
 
 แนวคิดหลัก v5:
@@ -25,25 +25,14 @@ from collections import Counter, defaultdict
 
 logger = logging.getLogger(__name__)
 
-MODEL_VERSION = 'bayes_pool_v17'
+MODEL_VERSION = 'bayes_pool_v11'
 TWO_DIGIT_PICKS = 3    # ทาย 2 ตัวเน้นๆ 3 คู่เท่านั้น
-COND_TRANS_WEIGHT = 1.00
+COND_TRANS_WEIGHT = 0.50
 
-# ── Hyper-parameters สำหรับ 2 ตัว (Tuned via walk-forward backtest + zero overlap in 6 draws) ──
+# ── Multi-Scale Windows สำหรับ 2 ตัว ──
 KEY_DIGIT_WINDOWS = (10, 15, 120, 200)
-DIIND_WINDOW = 45          # หน้าต่างนับความถี่แบบถ่วงน้ำหนักเอกซ์โพเนนเชียลสำหรับจับคู่ 2-ตัวท้าย
-DIIND_DECAY = 0.80         # อัตราการลดน้ำหนักตามอายุของงวด
-BASE_WEIGHT = 0.20         # น้ำหนักความถี่พื้นฐาน (Digit-Independent + Digit Markov)
-DIGIT_MARKOV_WEIGHT = 1.00 # น้ำหนัก Markov รายหลัก (หลักสิบ t-1→t, หลักหน่วย t-1→t)
-ANTI_REPEAT_WINDOW = 8     # จำนวนงวดล่าสุดที่ตัดคู่ที่ออกจริงไปแล้ว
-ANTI_REPEAT_FACTOR = 0.00  # ตัวคูณลดน้ำหนักคู่ที่เพิ่งออกจริง (0 = ไม่ทายซ้ำเลขที่เพิ่งออก)
-ANTI_PRED_WINDOW = 6       # ห้ามทายคู่เลขซ้ำกับที่เพิ่งทายไปใน 6 งวดก่อนหน้า
-TRANS_W_L1 = 3.00          # น้ำหนัก transition จาก 2 ตัวล่างงวด t-1
-TRANS_W_L2 = 0.00          # น้ำหนัก transition จาก 2 ตัวล่างงวด t-2
-TRANS_W_L3 = 1.00          # น้ำหนัก transition จาก 2 ตัวล่างงวด t-3
-TRANS_W_SUM = 0.25         # น้ำหนัก transition จากผลรวมงวด t-1
-TRANS_W_TOP2 = 2.00        # น้ำหนัก transition จาก 2 ตัวบน (หลักพัน-หลักร้อย) งวด t-1
-THREE_DIGIT_WINDOW = 12    # จำนวนงวดที่ใช้นับ positional frequency สำหรับหลักร้อยของ 3-ตัวท้าย
+DIIND_WINDOW = 62          # หน้าต่างนับความถี่สำหรับจับคู่ 2-ตัว
+THREE_DIGIT_WINDOW = 20    # จำนวนงวดที่ใช้นับ positional frequency สำหรับ 3-ตัวท้าย
 
 # ── Hyper-parameters ─────────────────────────────
 HISTORY_LIMIT      = 400    # จำนวนงวดล่าสุดที่ใช้
@@ -97,46 +86,33 @@ def _to_matrix(draws_oldest_first, prize_len=6) -> np.ndarray:
 def _build_transition_tables(X_all: np.ndarray) -> dict:
     """
     สร้างตารางความถี่การเปลี่ยนสถานะ (Conditional Transition Frequency Tables)
-    สำหรับเลขท้าย 2 ตัว (last_two = 2 หลักสุดท้ายของรางวัลที่ 1):
-      - l1: 2 ตัวท้ายงวดก่อน (t-1) → 2 ตัวท้ายงวดปัจจุบัน (t)
-      - l2: 2 ตัวท้าย 2 งวดก่อน (t-2) → 2 ตัวท้ายงวดปัจจุบัน (t)
-      - sum: ผลรวมเลข 6 หลักงวดก่อน (t-1) → 2 ตัวท้ายงวดปัจจุบัน (t)
-      - top2: 2 ตัวบน (หลักพัน-ร้อย) งวดก่อน (t-1) → 2 ตัวท้ายงวดปัจจุบัน (t)
-      - d1: หลักสิบงวดก่อน (t-1) → หลักสิบงวดปัจจุบัน (t)
-      - d2: หลักหน่วยงวดก่อน (t-1) → หลักหน่วยงวดปัจจุบัน (t)
+    จากคุณลักษณะของงวดก่อนหน้า:
+      - l1_bot: 2 ตัวล่างงวดก่อน → คู่ 2 ตัวงวดถัดไป
+      - l1_top: 2 ตัวบนงวดก่อน → คู่ 2 ตัวงวดถัดไป
+      - sum_prev: ผลรวมเลข 6 หลักงวดก่อน → คู่ 2 ตัวงวดถัดไป
     """
-    trans_l1 = defaultdict(Counter)
-    trans_l2 = defaultdict(Counter)
-    trans_l3 = defaultdict(Counter)
+    n_pos = X_all.shape[1]
+    trans_l1_bot = defaultdict(Counter)
+    trans_l1_top = defaultdict(Counter)
     trans_sum = defaultdict(Counter)
-    trans_top2 = defaultdict(Counter)
-    trans_d1 = defaultdict(Counter)
-    trans_d2 = defaultdict(Counter)
 
-    for i in range(3, len(X_all)):
-        prev1 = f"{X_all[i - 1, -2]}{X_all[i - 1, -1]}"
-        prev2 = f"{X_all[i - 2, -2]}{X_all[i - 2, -1]}"
-        prev3 = f"{X_all[i - 3, -2]}{X_all[i - 3, -1]}"
+    for i in range(2, len(X_all)):
+        prev_bot = f"{X_all[i - 1, -2]}{X_all[i - 1, -1]}"
+        prev_top = f"{X_all[i - 1, 2]}{X_all[i - 1, 3]}" if n_pos >= 4 else prev_bot
         prev_sum = int(X_all[i - 1].sum())
-        prev_top2 = f"{X_all[i - 1, 2]}{X_all[i - 1, 3]}"
-        cur = f"{X_all[i, -2]}{X_all[i, -1]}"
 
-        trans_l1[prev1][cur] += 1.0
-        trans_l2[prev2][cur] += 1.0
-        trans_l3[prev3][cur] += 1.0
-        trans_sum[prev_sum][cur] += 1.0
-        trans_top2[prev_top2][cur] += 1.0
-        trans_d1[str(X_all[i - 1, -2])][str(X_all[i, -2])] += 1.0
-        trans_d2[str(X_all[i - 1, -1])][str(X_all[i, -1])] += 1.0
+        cur_bot = f"{X_all[i, -2]}{X_all[i, -1]}"
+        cur_top = f"{X_all[i, 2]}{X_all[i, 3]}" if n_pos >= 4 else cur_bot
+
+        for p, w in ((cur_bot, 1.0), (cur_top, 0.85)):
+            trans_l1_bot[prev_bot][p] += w
+            trans_l1_top[prev_top][p] += w
+            trans_sum[prev_sum][p] += w
 
     return {
-        'l1': trans_l1,
-        'l2': trans_l2,
-        'l3': trans_l3,
+        'l1_bot': trans_l1_bot,
+        'l1_top': trans_l1_top,
         'sum': trans_sum,
-        'top2': trans_top2,
-        'd1': trans_d1,
-        'd2': trans_d2,
     }
 
 
@@ -240,80 +216,45 @@ def _fit_weights(table: np.ndarray, start: int, X: np.ndarray, t: int) -> dict:
 # ──────────────────────────────────────────────
 
 def _select_two_digit_and_keys(
-    X: np.ndarray,
-    t: int,
-    trans_tables: dict | None = None,
-    banned_pairs: set[str] | None = None,
+    X: np.ndarray, t: int, trans_tables: dict | None = None
 ) -> tuple[str, str, list[str], float]:
     """
-    คำนวณเลขเด่นหลัก (k1), เลขเด่นรอง (k2) และชุดเจาะ 2 ตัวท้าย 3 คู่:
-    ผสานคะแนน Exponential Decay + Digit Markov + Multi-Conditional Transition
-    และกระจายหลักสิบไม่ให้ซ้ำกันในงวดเดียว รวมถึงไม่ซ้ำกับคู่ที่เพิ่งทายในงวดก่อนหน้า
+    คำนวณเลขเด่นหลัก (k1), เลขเด่นรอง (k2) และชุดเจาะ 2 ตัว 3 คู่:
+    ผสานคะแนน Digit-Independent Frequency (W=62) ร่วมกับ Multi-Feature Conditional Transition
+    (2 ตัวล่างงวดก่อน, 2 ตัวบนงวดก่อน, และผลรวมเลขงวดก่อน)
     """
+    n_pos = X.shape[1]
     diind_n = min(DIIND_WINDOW, t)
+    X_recent = X[max(0, t - diind_n): t]
     d1_cnt = Counter()
     d2_cnt = Counter()
-    for i in range(max(0, t - diind_n), t):
-        w = DIIND_DECAY ** (t - 1 - i)
-        d1_cnt[str(X[i, -2])] += w
-        d2_cnt[str(X[i, -1])] += w
+    for row in X_recent:
+        d1_cnt[str(row[-2])] += 1
+        d2_cnt[str(row[-1])] += 1
+        if n_pos >= 4:
+            d1_cnt[str(row[2])] += 1
+            d2_cnt[str(row[3])] += 1
 
-    if trans_tables is not None and t >= 1:
-        last_d1 = str(X[t - 1, -2])
-        last_d2 = str(X[t - 1, -1])
-        for d in range(10):
-            ds = str(d)
-            d1_cnt[ds] += DIGIT_MARKOV_WEIGHT * trans_tables['d1'][last_d1].get(ds, 0.0)
-            d2_cnt[ds] += DIGIT_MARKOV_WEIGHT * trans_tables['d2'][last_d2].get(ds, 0.0)
-
-    recent_pairs = (
-        {f"{X[i, -2]}{X[i, -1]}" for i in range(max(0, t - ANTI_REPEAT_WINDOW), t)}
-        if ANTI_REPEAT_WINDOW > 0 else set()
-    )
-    prev1 = f"{X[t - 1, -2]}{X[t - 1, -1]}" if t >= 1 else "00"
-    prev2 = f"{X[t - 2, -2]}{X[t - 2, -1]}" if t >= 2 else prev1
-    prev3 = f"{X[t - 3, -2]}{X[t - 3, -1]}" if t >= 3 else prev2
+    prev_bot = f"{X[t - 1, -2]}{X[t - 1, -1]}" if t >= 1 else "00"
+    prev_top = f"{X[t - 1, 2]}{X[t - 1, 3]}" if (t >= 1 and n_pos >= 4) else prev_bot
     prev_sum = int(X[t - 1].sum()) if t >= 1 else 0
-    prev_top2 = f"{X[t - 1, 2]}{X[t - 1, 3]}" if t >= 1 and X.shape[1] >= 4 else "00"
 
     pair_scores = {}
     for a in range(10):
         for b in range(10):
             p = f"{a}{b}"
-            base = d1_cnt.get(str(a), 0.0) * d2_cnt.get(str(b), 0.0) * BASE_WEIGHT
-            if p in recent_pairs:
-                base *= ANTI_REPEAT_FACTOR
+            base = (d1_cnt.get(str(a), 0) * d2_cnt.get(str(b), 0)) / 100.0
             c_score = 0.0
-            if trans_tables is not None and t >= 3:
+            if trans_tables is not None and t >= 2:
                 c_score = (
-                    trans_tables['l1'][prev1].get(p, 0.0) * TRANS_W_L1
-                    + trans_tables['l2'][prev2].get(p, 0.0) * TRANS_W_L2
-                    + trans_tables['l3'][prev3].get(p, 0.0) * TRANS_W_L3
-                    + trans_tables['sum'][prev_sum].get(p, 0.0) * TRANS_W_SUM
-                    + trans_tables['top2'][prev_top2].get(p, 0.0) * TRANS_W_TOP2
+                    trans_tables['l1_bot'][prev_bot].get(p, 0.0) * 1.1
+                    + trans_tables['l1_top'][prev_top].get(p, 0.0) * 0.9
+                    + trans_tables['sum'][prev_sum].get(p, 0.0) * 0.5
                 )
-            sc = base + COND_TRANS_WEIGHT * c_score
-            if banned_pairs and p in banned_pairs:
-                sc = 0.0
-            pair_scores[p] = sc
+            pair_scores[p] = base + COND_TRANS_WEIGHT * c_score
 
     ranked2 = sorted(pair_scores, key=lambda k: (-pair_scores[k], k))
-    two = []
-    used_tens = set()
-    used_units = set()
-    for cand in ranked2:
-        if len(two) < TWO_DIGIT_PICKS and cand[0] not in used_tens and cand[1] not in used_units:
-            two.append(cand)
-            used_tens.add(cand[0])
-            used_units.add(cand[1])
-        if len(two) == TWO_DIGIT_PICKS:
-            break
-    if len(two) < TWO_DIGIT_PICKS:
-        for cand in ranked2:
-            if cand not in two:
-                two.append(cand)
-            if len(two) == TWO_DIGIT_PICKS:
-                break
+    two = ranked2[:TWO_DIGIT_PICKS]
 
     # คำนวณเลขเด่นหลัก-รองจากน้ำหนักรวมของคู่ที่ได้คะแนนสูงสุด
     dig_weights = Counter()
@@ -331,56 +272,42 @@ def _select_two_digit_and_keys(
 
 
 def _forecast(
-    table: np.ndarray,
-    start: int,
-    X: np.ndarray,
-    t: int,
-    trans_tables: dict | None = None,
-    banned_pairs: set[str] | None = None,
+    table: np.ndarray, start: int, X: np.ndarray, t: int, trans_tables: dict | None = None
 ) -> dict:
     """ทำนายงวด t → dict ผลลัพธ์"""
     n_pos = X.shape[1]
     fit = _fit_weights(table, start, X, t)
     sig = table[t - start]                                   # (L, K, 10)
-    # ใช้น้ำหนักสัญญาณระยะสั้น + Markov สำหรับความน่าจะเป็นรายหลักเพื่อให้เปลี่ยนตามงวดล่าสุด
-    dyn_w = fit['weights'] if not fit['gated'] else np.array([0.1, 0.8, 0.4, 1.2])
-    logp = _log_softmax_pool(dyn_w, np.log(10.0 * sig))
+    logp = _log_softmax_pool(fit['weights'], np.log(10.0 * sig))
     P = np.exp(logp)                                         # (L, 10) ความน่าจะเป็นต่อตำแหน่ง
 
-    # ── 2 ตัวท้าย (3 คู่ตรงตัว): Exponential Decay + Conditional Transition ──
-    k1, k2, two, p_two_hit = _select_two_digit_and_keys(
-        X, t, trans_tables=trans_tables, banned_pairs=banned_pairs
-    )
+    predicted_first = ''.join(str(int(np.argmax(P[p]))) for p in range(n_pos))
 
-    # ── 3 ตัวท้าย: เชื่อมโยงหลักร้อยเด่น + transition จากงวดก่อน เข้ากับชุด 2 ตัวท้ายทั้ง 3 คู่ ──
+    # ── 2 ตัว (3 คู่ตรงตัว): Digit-Independent + Conditional Transition ──
+    k1, k2, two, p_two_hit = _select_two_digit_and_keys(X, t, trans_tables=trans_tables)
+
+    # ── 3 ตัวท้าย: Short-Window Digit-Independent Frequency (W=20) ──
     if n_pos >= 3:
         w3 = min(THREE_DIGIT_WINDOW, t)
-        c_h = Counter()
-        for i in range(max(0, t - w3), t):
-            c_h[int(X[i, -3])] += 0.70 ** (t - 1 - i)
-        # บวกความถี่การเปลี่ยนหลักร้อยจากงวด t-1 → t เพื่อให้หลักร้อยเปลี่ยนตามผลงวดล่าสุด
-        if t >= 2:
-            prev_h = int(X[t - 1, -3])
-            for i in range(1, t):
-                if int(X[i - 1, -3]) == prev_h:
-                    c_h[int(X[i, -3])] += 0.5
-        if t >= 1:
-            c_h[int(X[t - 1, -3])] *= 0.3  # ลดโอกาสทายหลักร้อยซ้ำกับงวดที่เพิ่งออก
-        top_h = sorted(range(10), key=lambda d: (-c_h[d] - P[n_pos - 3][d], d))[:3]
-        three = [
-            f"{top_h[0]}{two[0]}",
-            f"{top_h[1]}{two[1]}",
-            f"{top_h[2]}{two[2]}",
-        ]
+        X_3d = X[max(0, t - w3): t]
+        c_h = Counter(int(r[-3]) for r in X_3d)
+        c_t = Counter(int(r[-2]) for r in X_3d)
+        c_u = Counter(int(r[-1]) for r in X_3d)
+        top_h = sorted(range(10), key=lambda d: (-c_h[d], -P[n_pos - 3][d], d))[:3]
+        top_t = sorted(range(10), key=lambda d: (-c_t[d], -P[n_pos - 2][d], d))[:3]
+        top_u = sorted(range(10), key=lambda d: (-c_u[d], -P[n_pos - 1][d], d))[:3]
+        joint3 = {}
+        for a in top_h:
+            for b in top_t:
+                for c in top_u:
+                    joint3[f"{a}{b}{c}"] = (
+                        (c_h[a] + 1.0 + P[n_pos - 3][a])
+                        * (c_t[b] + 1.0 + P[n_pos - 2][b])
+                        * (c_u[c] + 1.0 + P[n_pos - 1][c])
+                    )
+        three = sorted(joint3, key=lambda k: (-joint3[k], k))[:3]
     else:
         three = ["000", "001", "002"]
-
-    # ── เลขทำนาย 6 หลัก: 3 หลักหน้าจากสัญญาณไดนามิก + 3 หลักท้ายตรงกับชุดเด่นอันดับ 1 ──
-    if n_pos >= 6:
-        prefix = ''.join(str(int(np.argmax(P[p]))) for p in range(n_pos - 3))
-        predicted_first = prefix + three[0]
-    else:
-        predicted_first = ''.join(str(int(np.argmax(P[p]))) for p in range(n_pos))
 
     vote_breakdown = []
     for p in range(n_pos):
@@ -423,24 +350,9 @@ def predict_from_history(history: list, prize_len=6) -> dict:
     n = len(X)
     start = min(max(MIN_TRAIN, n - VALIDATION_DRAWS), n)
     table = _signal_table(X, start)
-    # ใช้เฉพาะงวดที่รู้แล้ว ณ ตอนทำนาย (ไม่เกินงวดล่าสุดใน history) เพื่อกัน look-ahead
-    cutoff = history[0].draw_date
-    all_draws = [d for d in reversed(_get_history(limit=1000)) if d.draw_date <= cutoff]
+    all_draws = list(reversed(_get_history(limit=1000)))
     trans_tables = _build_transition_tables(_to_matrix(all_draws, prize_len)) if len(all_draws) >= 3 else None
-
-    # รวบรวมคู่ที่เพิ่งทายไปแล้วใน ANTI_PRED_WINDOW งวดก่อนหน้า เพื่อไม่ให้ทายซ้ำติดกัน
-    from lottery.models import Prediction
-    recent_pred_rows = list(
-        Prediction.objects.filter(target_date__lte=cutoff)
-        .order_by('-target_date')[:ANTI_PRED_WINDOW]
-    )
-    banned_pairs = set()
-    for rp in recent_pred_rows:
-        for p_str in rp.predicted_two.replace('/', ',').split(','):
-            if p_str.strip():
-                banned_pairs.add(p_str.strip())
-
-    return _forecast(table, start, X, n, trans_tables=trans_tables, banned_pairs=banned_pairs)
+    return _forecast(table, start, X, n, trans_tables=trans_tables)
 
 
 def walk_forward(draws_oldest_first: list, prize_len=6, first_target=MIN_TRAIN):
@@ -453,55 +365,22 @@ def walk_forward(draws_oldest_first: list, prize_len=6, first_target=MIN_TRAIN):
     first_target = max(first_target, MIN_TRAIN)
     if n <= first_target:
         return
+    trans_tables = _build_transition_tables(X)
     table = _signal_table(X[:n - 1], MIN_TRAIN)
-    # ไม่มี look-ahead: ตาราง transition ของงวด t ต้องสร้างจากงวดก่อน t เท่านั้น
-    trans_tables = _build_transition_tables(X[:first_target])
-    recent_predicted: list[list[str]] = []
     for t in range(first_target, n):
-        banned = {
-            p for prev in recent_predicted[-ANTI_PRED_WINDOW:] for p in prev
-        } if ANTI_PRED_WINDOW > 0 else set()
-        fc = _forecast(table, MIN_TRAIN, X, t, trans_tables=trans_tables, banned_pairs=banned)
-        recent_predicted.append(fc['two_digit_pairs'])
-        yield t, fc
-        # เพิ่ม transition ที่จบที่งวด t (รู้ผลแล้ว) เข้าตารางสำหรับงวด t+1
-        if t >= 3:
-            prev1 = f"{X[t - 1, -2]}{X[t - 1, -1]}"
-            prev2 = f"{X[t - 2, -2]}{X[t - 2, -1]}"
-            prev3 = f"{X[t - 3, -2]}{X[t - 3, -1]}"
-            prev_top2 = f"{X[t - 1, 2]}{X[t - 1, 3]}"
-            cur = f"{X[t, -2]}{X[t, -1]}"
-            trans_tables['l1'][prev1][cur] += 1.0
-            trans_tables['l2'][prev2][cur] += 1.0
-            trans_tables['l3'][prev3][cur] += 1.0
-            trans_tables['sum'][int(X[t - 1].sum())][cur] += 1.0
-            trans_tables['top2'][prev_top2][cur] += 1.0
-            trans_tables['d1'][str(X[t - 1, -2])][str(X[t, -2])] += 1.0
-            trans_tables['d2'][str(X[t - 1, -1])][str(X[t, -1])] += 1.0
+        yield t, _forecast(table, MIN_TRAIN, X, t, trans_tables=trans_tables)
 
 
 # ──────────────────────────────────────────────
 #  Public API
 # ──────────────────────────────────────────────
 
-PRIOR_HITS = TWO_DIGIT_PICKS      # ค่าตั้งต้น = โอกาสบังเอิญ: ทาย 3 คู่ จาก 100 คู่ ≈ 3%
-PRIOR_TRIALS = 100
-
-
-def empirical_hit_rate(hits: int, total: int) -> float:
-    """
-    อัตราถูก 2 ตัวท้ายจริงของอัลกอริทึม (%) จากผลทำนายที่ผ่านมา
-    ใช้ค่าตั้งต้นเท่าโอกาสบังเอิญ (3/100) เพื่อไม่ให้แกว่งเมื่อมีตัวอย่างน้อย
-    """
-    return round((hits + PRIOR_HITS) / (total + PRIOR_TRIALS) * 100, 1)
-
-
-def _result_to_row(res: dict, confidence: float = None) -> dict:
+def _result_to_row(res: dict) -> dict:
     return {
         'predicted_first':  res['predicted_first'],
         'predicted_two':    ', '.join(res['two_digit_pairs']),
         'predicted_three':  ', '.join(res['three_digit_sets']),
-        'confidence':       res['confidence'] if confidence is None else confidence,
+        'confidence':       res['confidence'],
         'model_used':       MODEL_VERSION,
         'key_digit':        res['key_digit'],
         'secondary_digit':  res['secondary_digit'],
@@ -526,12 +405,7 @@ def predict_next(target_date: date = None) -> dict:
     prize_len = len(_extract_digits(history[0])) or 6
     res = predict_from_history(history, prize_len)
     logger.info(f"[{MODEL_VERSION}] target={target_date} signal={res['signal']}")
-    from lottery.models import Prediction
-    done = Prediction.objects.filter(
-        actual_result__isnull=False, model_used=MODEL_VERSION, target_date__lt=target_date
-    )
-    conf = empirical_hit_rate(done.filter(is_correct_two=True).count(), done.count())
-    row = _result_to_row(res, conf)
+    row = _result_to_row(res)
     row['based_on'] = len(history)
     row['signal'] = res['signal']
     return row
@@ -601,16 +475,12 @@ def rebuild_history(last_n: int = 120) -> int:
     Prediction.objects.filter(target_date__in=target_dates).delete()
 
     created = 0
-    hits = 0
     for t, res in walk_forward(results, prize_len, first_target=first_target):
         actual = results[t]
-        # confidence = อัตราถูกจริงสะสมของงวดก่อนหน้า (ไม่รวมงวดนี้)
-        conf = empirical_hit_rate(hits, created)
         pred = Prediction.objects.create(
-            target_date=actual.draw_date, actual_result=actual, **_result_to_row(res, conf)
+            target_date=actual.draw_date, actual_result=actual, **_result_to_row(res)
         )
         pred.evaluate()
-        hits += 1 if pred.is_correct_two else 0
         created += 1
     logger.info(f"[{MODEL_VERSION}] rebuilt {created} walk-forward predictions")
     return created
@@ -707,6 +577,7 @@ def kick_model_refresh():
 def get_accuracy_stats() -> dict:
     """คำนวณ accuracy ของ predictions ที่ผ่านมา (เฉพาะโมเดลปัจจุบัน)"""
     from lottery.models import Prediction
+    from django.db.models import Q
 
     evaluated = Prediction.objects.filter(actual_result__isnull=False, model_used=MODEL_VERSION)
     total = evaluated.count()
@@ -718,7 +589,7 @@ def get_accuracy_stats() -> dict:
             'acc_two': 0, 'acc_three': 0, 'acc_first': 0,
         }
 
-    correct_two   = evaluated.filter(is_correct_two=True).count()
+    correct_two   = evaluated.filter(Q(is_correct_two=True) | Q(is_correct_two_top=True)).count()
     correct_three = evaluated.filter(is_correct_three=True).count()
     correct_first = evaluated.filter(is_correct_first=True).count()
 
