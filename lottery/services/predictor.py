@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 
 logger = logging.getLogger(__name__)
 
-MODEL_VERSION = 'bayes_pool_v11'
+MODEL_VERSION = 'bayes_pool_v11_causal'
 TWO_DIGIT_PICKS = 3    # ทาย 2 ตัวเน้นๆ 3 คู่เท่านั้น
 COND_TRANS_WEIGHT = 0.50
 
@@ -266,7 +266,8 @@ def _select_two_digit_and_keys(
 
     total_sc = sum(pair_scores.values()) or 1.0
     top3_share = sum(pair_scores[p] for p in two) / total_sc
-    conf = min(0.75, max(0.51, 0.45 + top3_share * 1.8))
+    # ไม่ปั้นตัวเลขมั่นใจ: 3 คู่จาก 100 คู่ → โอกาสสุ่มตรงๆ = 3%
+    conf = TWO_DIGIT_PICKS / 100.0
 
     return k1, k2, two, conf
 
@@ -350,8 +351,8 @@ def predict_from_history(history: list, prize_len=6) -> dict:
     n = len(X)
     start = min(max(MIN_TRAIN, n - VALIDATION_DRAWS), n)
     table = _signal_table(X, start)
-    all_draws = list(reversed(_get_history(limit=1000)))
-    trans_tables = _build_transition_tables(_to_matrix(all_draws, prize_len)) if len(all_draws) >= 3 else None
+    # ใช้เฉพาะงวดที่รู้แล้ว (history) เท่านั้น ห้ามดึงงวดอื่นจาก DB มาปน
+    trans_tables = _build_transition_tables(X) if n >= 3 else None
     return _forecast(table, start, X, n, trans_tables=trans_tables)
 
 
@@ -365,9 +366,10 @@ def walk_forward(draws_oldest_first: list, prize_len=6, first_target=MIN_TRAIN):
     first_target = max(first_target, MIN_TRAIN)
     if n <= first_target:
         return
-    trans_tables = _build_transition_tables(X)
     table = _signal_table(X[:n - 1], MIN_TRAIN)
     for t in range(first_target, n):
+        # ตารางการเปลี่ยนสถานะสร้างจากงวดก่อน t เท่านั้น (ไม่มี look-ahead)
+        trans_tables = _build_transition_tables(X[:t])
         yield t, _forecast(table, MIN_TRAIN, X, t, trans_tables=trans_tables)
 
 
